@@ -11,6 +11,7 @@ use crate::diff::diff_item;
 use crate::doctor::run_doctor;
 use crate::edit::edit_target;
 use crate::plan::{Action, build_plan, resolve_items};
+use crate::recipe::{add_app, list_recipes, load_recipe, manifest_path_for_repo};
 use crate::state::{StateStore, collect_status};
 
 #[derive(Parser, Debug)]
@@ -66,6 +67,19 @@ enum Command {
     Edit {
         name: Option<String>,
     },
+    Recipe {
+        #[command(subcommand)]
+        command: RecipeCommand,
+    },
+    AddApp {
+        name: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum RecipeCommand {
+    List,
+    Show { name: String },
 }
 
 pub fn run() -> Result<i32> {
@@ -108,6 +122,8 @@ pub fn run() -> Result<i32> {
             let (manifest_path, config) = load_config(&cli.manifest)?;
             run_edit(&config, &manifest_path, name.as_deref())
         }
+        Command::Recipe { command } => run_recipe_command(&cli.manifest, command),
+        Command::AddApp { name } => run_add_app(&cli.manifest, &name),
     }
 }
 
@@ -350,6 +366,46 @@ fn run_add(config: &Config, manifest_path: &Path, path: &str, name: &str) -> Res
 fn run_edit(config: &Config, manifest_path: &Path, name: Option<&str>) -> Result<i32> {
     let result = edit_target(config, manifest_path, name)?;
     println!("opened   {:<18} {}", result.editor, result.target.display());
+    Ok(0)
+}
+
+fn run_recipe_command(manifest: &Path, command: RecipeCommand) -> Result<i32> {
+    let manifest_path = manifest_path_for_repo(manifest)?;
+
+    match command {
+        RecipeCommand::List => {
+            let recipes = list_recipes(&manifest_path)?;
+            if recipes.is_empty() {
+                println!("no recipes found");
+            } else {
+                for recipe in recipes {
+                    println!("{:<18} {} items", recipe.name, recipe.item_count);
+                }
+            }
+            Ok(0)
+        }
+        RecipeCommand::Show { name } => {
+            let recipe = load_recipe(&manifest_path, &name)?;
+            print!("{}", recipe.raw_text.trim_end());
+            println!();
+            Ok(0)
+        }
+    }
+}
+
+fn run_add_app(manifest: &Path, recipe_name: &str) -> Result<i32> {
+    let manifest_path = manifest_path_for_repo(manifest)?;
+    let (_, config) = load_config_or_empty(&manifest_path)?;
+    let result = add_app(&manifest_path, &config, recipe_name)?;
+    println!(
+        "added recipe {:<11} {} items",
+        result.recipe_name,
+        result.item_names.len()
+    );
+    for item_name in result.item_names {
+        println!("item     {item_name}");
+    }
+    println!("manifest {}", result.manifest.display());
     Ok(0)
 }
 

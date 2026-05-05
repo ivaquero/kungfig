@@ -166,7 +166,7 @@ fn normalize_manifest_path(path: &Path) -> Result<PathBuf> {
     Ok(env::current_dir()?.join(path))
 }
 
-fn validate_config(config: &Config) -> Result<()> {
+pub(crate) fn validate_config(config: &Config) -> Result<()> {
     if config.items.is_empty() {
         bail!("kungfig.toml must contain at least one [[items]] entry");
     }
