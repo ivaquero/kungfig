@@ -21,4 +21,5 @@ __pycache__/
 .mypy_cache/
 
 # Rust
+*.lock
 target/

@@ -32,18 +32,31 @@ enum Command {
         #[arg(long)]
         force: bool,
     },
-    Plan,
+    Plan {
+        #[arg(long)]
+        tag: Option<String>,
+    },
     Diff {
         name: Option<String>,
         #[arg(long)]
         summary: bool,
+        #[arg(long)]
+        tag: Option<String>,
     },
     Apply {
         #[arg(long)]
         dry_run: bool,
+        #[arg(long)]
+        tag: Option<String>,
     },
-    Status,
-    Rollback,
+    Status {
+        #[arg(long)]
+        tag: Option<String>,
+    },
+    Rollback {
+        #[arg(long)]
+        tag: Option<String>,
+    },
     Doctor,
     Add {
         path: String,
@@ -60,25 +73,31 @@ pub fn run() -> Result<i32> {
 
     match cli.command {
         Command::Init { force } => init_manifest(&cli.manifest, force),
-        Command::Plan => {
+        Command::Plan { tag } => {
             let (manifest_path, config) = load_config(&cli.manifest)?;
-            run_plan(&config, &manifest_path)
+            run_plan(&config, &manifest_path, tag.as_deref())
         }
-        Command::Diff { name, summary } => {
+        Command::Diff { name, summary, tag } => {
             let (manifest_path, config) = load_config(&cli.manifest)?;
-            run_diff(&config, &manifest_path, name.as_deref(), summary)
+            run_diff(
+                &config,
+                &manifest_path,
+                name.as_deref(),
+                summary,
+                tag.as_deref(),
+            )
         }
-        Command::Apply { dry_run } => {
+        Command::Apply { dry_run, tag } => {
             let (manifest_path, config) = load_config(&cli.manifest)?;
-            run_apply(&config, &manifest_path, dry_run)
+            run_apply(&config, &manifest_path, dry_run, tag.as_deref())
         }
-        Command::Status => {
+        Command::Status { tag } => {
             let (manifest_path, config) = load_config(&cli.manifest)?;
-            run_status(&config, &manifest_path)
+            run_status(&config, &manifest_path, tag.as_deref())
         }
-        Command::Rollback => {
+        Command::Rollback { tag } => {
             let (manifest_path, config) = load_config(&cli.manifest)?;
-            run_rollback(&config, &manifest_path)
+            run_rollback(&config, &manifest_path, tag.as_deref())
         }
         Command::Doctor => run_doctor_cli(&cli.manifest),
         Command::Add { path, name } => {
@@ -108,9 +127,15 @@ fn init_manifest(path: &Path, force: bool) -> Result<i32> {
     Ok(0)
 }
 
-fn run_plan(config: &Config, manifest_path: &Path) -> Result<i32> {
+fn run_plan(config: &Config, manifest_path: &Path, tag: Option<&str>) -> Result<i32> {
+    let selected = select_config(config, None, tag)?;
+    if selected.items.is_empty() {
+        println!("no matching items");
+        return Ok(0);
+    }
+
     let store = StateStore::open()?;
-    let plan = build_plan(config, manifest_path, Some(&store))?;
+    let plan = build_plan(&selected, manifest_path, Some(&store))?;
     let mut has_conflict = false;
 
     for action in plan.actions {
@@ -163,8 +188,14 @@ fn run_diff(
     manifest_path: &Path,
     name: Option<&str>,
     summary: bool,
+    tag: Option<&str>,
 ) -> Result<i32> {
-    let selected = select_config(config, name)?;
+    let selected = select_config(config, name, tag)?;
+    if selected.items.is_empty() {
+        println!("no matching items");
+        return Ok(0);
+    }
+
     if summary {
         let store = StateStore::open()?;
         let plan = build_plan(&selected, manifest_path, Some(&store))?;
@@ -221,9 +252,20 @@ fn run_diff(
     Ok(0)
 }
 
-fn run_apply(config: &Config, manifest_path: &Path, dry_run: bool) -> Result<i32> {
+fn run_apply(
+    config: &Config,
+    manifest_path: &Path,
+    dry_run: bool,
+    tag: Option<&str>,
+) -> Result<i32> {
+    let selected = select_config(config, None, tag)?;
+    if selected.items.is_empty() {
+        println!("no matching items");
+        return Ok(0);
+    }
+
     let store = StateStore::open()?;
-    let plan = build_plan(config, manifest_path, Some(&store))?;
+    let plan = build_plan(&selected, manifest_path, Some(&store))?;
     let results = if dry_run {
         preview_plan(&plan)
     } else {
@@ -239,9 +281,15 @@ fn run_apply(config: &Config, manifest_path: &Path, dry_run: bool) -> Result<i32
     Ok(if has_problem { 1 } else { 0 })
 }
 
-fn run_status(config: &Config, manifest_path: &Path) -> Result<i32> {
+fn run_status(config: &Config, manifest_path: &Path, tag: Option<&str>) -> Result<i32> {
+    let selected = select_config(config, None, tag)?;
+    if selected.items.is_empty() {
+        println!("no matching items");
+        return Ok(0);
+    }
+
     let store = StateStore::open()?;
-    let statuses = collect_status(&resolve_items(config, manifest_path)?, &store)?;
+    let statuses = collect_status(&resolve_items(&selected, manifest_path)?, &store)?;
     let mut has_changes = false;
 
     for status in statuses {
@@ -255,9 +303,15 @@ fn run_status(config: &Config, manifest_path: &Path) -> Result<i32> {
     Ok(if has_changes { 1 } else { 0 })
 }
 
-fn run_rollback(config: &Config, manifest_path: &Path) -> Result<i32> {
+fn run_rollback(config: &Config, manifest_path: &Path, tag: Option<&str>) -> Result<i32> {
+    let selected = select_config(config, None, tag)?;
+    if selected.items.is_empty() {
+        println!("no matching items");
+        return Ok(0);
+    }
+
     let store = StateStore::open()?;
-    let results = rollback_items(&resolve_items(config, manifest_path)?, &store)?;
+    let results = rollback_items(&resolve_items(&selected, manifest_path)?, &store)?;
     let mut has_error = false;
 
     for result in results {
@@ -299,22 +353,15 @@ fn run_edit(config: &Config, manifest_path: &Path, name: Option<&str>) -> Result
     Ok(0)
 }
 
-fn select_config(config: &Config, name: Option<&str>) -> Result<Config> {
-    let Some(name) = name else {
-        return Ok(config.clone());
-    };
-
-    let items: Vec<_> = config
-        .items
-        .iter()
-        .filter(|item| item.name == name)
-        .cloned()
-        .collect();
-    if items.is_empty() {
-        bail!("item `{name}` not found");
+fn select_config(config: &Config, name: Option<&str>, tag: Option<&str>) -> Result<Config> {
+    if let Some(name) = name {
+        let exists = config.items.iter().any(|item| item.name == name);
+        if !exists {
+            bail!("item `{name}` not found");
+        }
     }
 
-    Ok(Config { items })
+    Ok(config.filtered(name, tag))
 }
 
 const DEFAULT_MANIFEST: &str = r#"

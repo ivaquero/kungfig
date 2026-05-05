@@ -22,6 +22,8 @@ pub struct Item {
     pub target: Target,
     #[serde(default)]
     pub mode: Mode,
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -73,6 +75,26 @@ impl Target {
                 })
             }
         }
+    }
+}
+
+impl Config {
+    pub fn filtered(&self, name: Option<&str>, tag: Option<&str>) -> Self {
+        let items = self
+            .items
+            .iter()
+            .filter(|item| match name {
+                Some(name) => item.name == name,
+                None => true,
+            })
+            .filter(|item| match tag {
+                Some(tag) => item.tags.iter().any(|item_tag| item_tag == tag),
+                None => true,
+            })
+            .cloned()
+            .collect();
+
+        Self { items }
     }
 }
 
@@ -128,6 +150,11 @@ fn validate_config(config: &Config) -> Result<()> {
         }
         if !names.insert(name.to_string()) {
             bail!("duplicate item name: {name}");
+        }
+        for tag in &item.tags {
+            if tag.trim().is_empty() {
+                bail!("item `{name}` has an empty tag");
+            }
         }
     }
 

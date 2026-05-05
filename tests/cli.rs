@@ -169,6 +169,81 @@ fn add_copies_existing_config_updates_manifest_and_records_state() {
 }
 
 #[test]
+fn apply_with_tag_only_updates_matching_items() {
+    let workspace = workspace();
+    fs::create_dir_all(workspace.join("repo")).expect("create repo dir");
+    fs::write(workspace.join("repo/gitconfig"), "git\n").expect("write git source");
+    fs::write(workspace.join("repo/zshrc"), "shell\n").expect("write shell source");
+    write_manifest_text(
+        &workspace,
+        r#"
+[[items]]
+name = "gitconfig"
+source = "repo/gitconfig"
+target = "live/.gitconfig"
+mode = "copy"
+tags = ["git", "core"]
+
+[[items]]
+name = "zshrc"
+source = "repo/zshrc"
+target = "live/.zshrc"
+mode = "copy"
+tags = ["shell"]
+"#,
+    );
+
+    let apply = run_kungfig(&workspace, &["apply", "--tag", "git"]);
+    assert!(apply.status.success(), "{:?}", apply);
+
+    assert_eq!(
+        fs::read_to_string(workspace.join("live/.gitconfig")).expect("read tagged target"),
+        "git\n"
+    );
+    assert!(!workspace.join("live/.zshrc").exists());
+}
+
+#[test]
+fn status_with_tag_only_reports_matching_items() {
+    let workspace = workspace();
+    fs::create_dir_all(workspace.join("repo")).expect("create repo dir");
+    fs::write(workspace.join("repo/gitconfig"), "git\n").expect("write git source");
+    fs::write(workspace.join("repo/zshrc"), "shell\n").expect("write shell source");
+    write_manifest_text(
+        &workspace,
+        r#"
+[[items]]
+name = "gitconfig"
+source = "repo/gitconfig"
+target = "live/.gitconfig"
+mode = "copy"
+tags = ["git", "core"]
+
+[[items]]
+name = "zshrc"
+source = "repo/zshrc"
+target = "live/.zshrc"
+mode = "copy"
+tags = ["shell"]
+"#,
+    );
+
+    let apply = run_kungfig(&workspace, &["apply"]);
+    assert!(apply.status.success(), "{:?}", apply);
+
+    fs::write(workspace.join("live/.gitconfig"), "git user edit\n").expect("edit git target");
+    fs::write(workspace.join("live/.zshrc"), "shell user edit\n").expect("edit shell target");
+
+    let status = run_kungfig(&workspace, &["status", "--tag", "git"]);
+    assert!(!status.status.success(), "{:?}", status);
+
+    let stdout = String::from_utf8_lossy(&status.stdout);
+    assert!(stdout.contains("gitconfig"));
+    assert!(stdout.contains("modified"));
+    assert!(!stdout.contains("zshrc"));
+}
+
+#[test]
 fn status_reports_modified_when_target_changes_only() {
     let workspace = workspace();
     fs::create_dir_all(workspace.join("repo")).expect("create repo dir");
@@ -196,7 +271,7 @@ fn edit_opens_item_source_with_editor_env() {
     let editor_script = workspace.join("fake-editor.sh");
     fs::write(
         &editor_script,
-        "#!/bin/sh\nprintf '%s' \"$1\" > \"$EDIT_LOG\"\n",
+        "#!/bin/sh\nprintf %s \"$1\" > \"$EDIT_LOG\"\n",
     )
     .expect("write editor script");
 
@@ -249,7 +324,7 @@ fn diff_can_focus_on_single_item() {
     let workspace = workspace();
     fs::create_dir_all(workspace.join("repo")).expect("create repo dir");
     fs::write(workspace.join("repo/gitconfig"), "v2\n").expect("write git source");
-    fs::write(workspace.join("repo/zshrc"), "alias ll='eza'\n").expect("write zsh source");
+    fs::write(workspace.join("repo/zshrc"), "alias ll=eza\n").expect("write zsh source");
     write_manifest_text(
         &workspace,
         r#"
@@ -268,7 +343,7 @@ mode = "copy"
     );
     fs::create_dir_all(workspace.join("live")).expect("create live dir");
     fs::write(workspace.join("live/.gitconfig"), "v1\n").expect("write git target");
-    fs::write(workspace.join("live/.zshrc"), "alias ll='ls'\n").expect("write zsh target");
+    fs::write(workspace.join("live/.zshrc"), "alias ll=ls\n").expect("write zsh target");
 
     let diff = run_kungfig(&workspace, &["diff", "gitconfig"]);
     assert!(diff.status.success(), "{:?}", diff);
