@@ -1,5 +1,12 @@
+pub mod apply;
+pub mod backup;
 pub mod cli;
-pub mod core;
+pub mod config;
+pub mod diff;
+pub mod error;
+pub mod path;
+pub mod plan;
+pub mod state;
 
 pub fn run() -> i32 {
     match cli::run() {

@@ -1,39 +1,102 @@
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-fn run_kungfig(args: &[&str]) -> std::process::Output {
+fn workspace() -> PathBuf {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock went backwards")
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!("kungfig-test-{}-{unique}", std::process::id()));
+    fs::create_dir_all(&path).expect("create temp workspace");
+    path
+}
+
+fn run_kungfig(workspace: &Path, args: &[&str]) -> std::process::Output {
+    let state_root = workspace.join(".state");
     Command::new(env!("CARGO_BIN_EXE_kungfig"))
         .args(args)
-        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .current_dir(workspace)
+        .env("KUNGFIG_STATE_DB", state_root.join("state.db"))
+        .env("KUNGFIG_BACKUP_DIR", state_root.join("backups"))
         .output()
         .expect("failed to run kungfig binary")
 }
 
-#[test]
-fn list_runs_against_repo_manifest() {
-    let output = run_kungfig(&["list"]);
-    assert!(output.status.success(), "{:?}", output);
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("manifest: kungfig.toml"));
-    assert!(stdout.contains("vscode"));
+fn write_manifest(workspace: &Path) {
+    let manifest = r#"
+[[items]]
+name = "gitconfig"
+source = "repo/gitconfig"
+target = "live/.gitconfig"
+mode = "copy"
+"#;
+    fs::write(workspace.join("kungfig.toml"), manifest).expect("write manifest");
 }
 
 #[test]
-fn show_reports_item_status() {
-    let output = run_kungfig(&["show", "wezterm"]);
+fn plan_reports_create_for_missing_target() {
+    let workspace = workspace();
+    fs::create_dir_all(workspace.join("repo")).expect("create repo dir");
+    fs::write(
+        workspace.join("repo/gitconfig"),
+        "[user]\nname = \"kungfig\"\n",
+    )
+    .expect("write source");
+    write_manifest(&workspace);
+
+    let output = run_kungfig(&workspace, &["plan"]);
     assert!(output.status.success(), "{:?}", output);
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("id:          wezterm"));
-    assert!(stdout.contains("status:"));
+    assert!(stdout.contains("create"));
+    assert!(stdout.contains("gitconfig"));
 }
 
 #[test]
-fn status_returns_non_zero_for_missing_item() {
-    let output = run_kungfig(&["status", "wezterm"]);
-    assert_eq!(output.status.code(), Some(1), "{:?}", output);
+fn apply_copies_file_and_status_becomes_synced() {
+    let workspace = workspace();
+    fs::create_dir_all(workspace.join("repo")).expect("create repo dir");
+    fs::write(workspace.join("repo/gitconfig"), "[core]\neditor = vim\n").expect("write source");
+    write_manifest(&workspace);
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("missing"));
-    assert!(stdout.contains("wezterm"));
+    let apply = run_kungfig(&workspace, &["apply"]);
+    assert!(apply.status.success(), "{:?}", apply);
+    assert_eq!(
+        fs::read_to_string(workspace.join("live/.gitconfig")).expect("read target"),
+        "[core]\neditor = vim\n"
+    );
+
+    let status = run_kungfig(&workspace, &["status"]);
+    assert!(status.status.success(), "{:?}", status);
+    let stdout = String::from_utf8_lossy(&status.stdout);
+    assert!(stdout.contains("synced"));
+    assert!(stdout.contains("gitconfig"));
+}
+
+#[test]
+fn rollback_restores_latest_backup() {
+    let workspace = workspace();
+    fs::create_dir_all(workspace.join("repo")).expect("create repo dir");
+    fs::write(workspace.join("repo/gitconfig"), "v1\n").expect("write v1");
+    write_manifest(&workspace);
+
+    let first_apply = run_kungfig(&workspace, &["apply"]);
+    assert!(first_apply.status.success(), "{:?}", first_apply);
+
+    fs::write(workspace.join("repo/gitconfig"), "v2\n").expect("write v2");
+    let second_apply = run_kungfig(&workspace, &["apply"]);
+    assert!(second_apply.status.success(), "{:?}", second_apply);
+    assert_eq!(
+        fs::read_to_string(workspace.join("live/.gitconfig")).expect("read v2 target"),
+        "v2\n"
+    );
+
+    let rollback = run_kungfig(&workspace, &["rollback"]);
+    assert!(rollback.status.success(), "{:?}", rollback);
+    assert_eq!(
+        fs::read_to_string(workspace.join("live/.gitconfig")).expect("read restored target"),
+        "v1\n"
+    );
 }
