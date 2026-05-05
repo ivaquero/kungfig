@@ -237,3 +237,25 @@ mode = "template"
 - `apply.rs`: Apply plan actions and restore backups
 - `state.rs`: Persist managed files and backups in SQLite
 - `error.rs`: Shared custom error types
+
+## Build
+
+Build the binary locally:
+
+```bash
+cargo build
+```
+
+Build an optimized release binary:
+
+```bash
+cargo build --release
+```
+
+Run the full test suite while developing:
+
+```bash
+cargo test
+```
+
+If you prefer using the executable directly, Cargo will place it under `target/debug/` or `target/release/` depending on the build mode.

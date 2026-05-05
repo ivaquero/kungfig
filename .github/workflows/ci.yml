@@ -2,7 +2,14 @@ name: CI
 
 on:
   push:
-  pull_request:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "version to build"
+        required: true
+        type: string
 
 jobs:
   build:
@@ -34,7 +41,7 @@ jobs:
         run: cargo build --release
 
       - name: Upload binary
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.binary_path }}
