@@ -63,7 +63,7 @@ fn doctor_reports_healthy_workspace() {
 }
 
 #[test]
-fn dry_run_reports_backup_without_touching_target() {
+fn dry_run_reports_update_without_touching_target() {
     let workspace = workspace();
     fs::create_dir_all(workspace.join("repo")).expect("create repo dir");
     fs::write(workspace.join("repo/gitconfig"), "v1\n").expect("write v1");
@@ -78,7 +78,7 @@ fn dry_run_reports_backup_without_touching_target() {
 
     let stdout = String::from_utf8_lossy(&dry_run.stdout);
     assert!(stdout.contains("would-update"));
-    assert!(stdout.contains("backup:"));
+    assert!(!stdout.contains("backup:"));
     assert_eq!(
         fs::read_to_string(workspace.join("live/.gitconfig")).expect("read unchanged target"),
         "v1\n"

@@ -94,10 +94,9 @@ pub fn preview_plan(plan: &Plan) -> Vec<OperationResult> {
                 name: name.clone(),
                 status: "would-update".to_string(),
                 detail: format!(
-                    "{} (target: {}; backup: {})",
+                    "{} ({})",
                     target.display(),
-                    describe_change_state(*change_state),
-                    target.display()
+                    describe_change_state(*change_state)
                 ),
             }),
             Action::Skip { name, reason } => results.push(OperationResult {
