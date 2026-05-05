@@ -86,7 +86,18 @@ pub fn run_doctor(manifest: &Path) -> Result<Vec<DoctorCheck>> {
 }
 
 fn check_config_repo(manifest_path: &Path, config: &Config) -> DoctorCheck {
-    match resolve_items(config, manifest_path) {
+    let filtered = match config.filtered(None, None) {
+        Ok(config) => config,
+        Err(err) => {
+            return DoctorCheck {
+                name: "config-repo".to_string(),
+                status: "error".to_string(),
+                detail: err.to_string(),
+            };
+        }
+    };
+
+    match resolve_items(&filtered, manifest_path) {
         Ok(items) => {
             let missing: Vec<_> = items
                 .into_iter()
@@ -101,7 +112,7 @@ fn check_config_repo(manifest_path: &Path, config: &Config) -> DoctorCheck {
                     status: "ok".to_string(),
                     detail: format!(
                         "{} source paths resolved under {}",
-                        config.items.len(),
+                        filtered.items.len(),
                         repo_root.display()
                     ),
                 }
@@ -122,7 +133,18 @@ fn check_config_repo(manifest_path: &Path, config: &Config) -> DoctorCheck {
 }
 
 fn check_target_writable(manifest_path: &Path, config: &Config) -> DoctorCheck {
-    match resolve_items(config, manifest_path) {
+    let filtered = match config.filtered(None, None) {
+        Ok(config) => config,
+        Err(err) => {
+            return DoctorCheck {
+                name: "target-writable".to_string(),
+                status: "error".to_string(),
+                detail: err.to_string(),
+            };
+        }
+    };
+
+    match resolve_items(&filtered, manifest_path) {
         Ok(items) => {
             let mut failures = Vec::new();
 
@@ -140,7 +162,7 @@ fn check_target_writable(manifest_path: &Path, config: &Config) -> DoctorCheck {
                 DoctorCheck {
                     name: "target-writable".to_string(),
                     status: "ok".to_string(),
-                    detail: format!("{} target paths are writable", config.items.len()),
+                    detail: format!("{} target paths are writable", filtered.items.len()),
                 }
             } else {
                 DoctorCheck {

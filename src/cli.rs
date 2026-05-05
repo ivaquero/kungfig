@@ -361,7 +361,7 @@ fn select_config(config: &Config, name: Option<&str>, tag: Option<&str>) -> Resu
         }
     }
 
-    Ok(config.filtered(name, tag))
+    config.filtered(name, tag)
 }
 
 const DEFAULT_MANIFEST: &str = r#"

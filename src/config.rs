@@ -24,6 +24,8 @@ pub struct Item {
     pub mode: Mode,
     #[serde(default)]
     pub tags: Vec<String>,
+    #[serde(default)]
+    pub when: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -43,6 +45,12 @@ pub enum Mode {
     #[default]
     Copy,
     Symlink,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WhenOperator {
+    Eq,
+    Ne,
 }
 
 impl std::fmt::Display for Mode {
@@ -79,22 +87,46 @@ impl Target {
 }
 
 impl Config {
-    pub fn filtered(&self, name: Option<&str>, tag: Option<&str>) -> Self {
-        let items = self
-            .items
-            .iter()
-            .filter(|item| match name {
-                Some(name) => item.name == name,
-                None => true,
-            })
-            .filter(|item| match tag {
-                Some(tag) => item.tags.iter().any(|item_tag| item_tag == tag),
-                None => true,
-            })
-            .cloned()
-            .collect();
+    pub fn filtered(&self, name: Option<&str>, tag: Option<&str>) -> Result<Self> {
+        let mut items = Vec::new();
 
-        Self { items }
+        for item in &self.items {
+            if let Some(name) = name {
+                if item.name != name {
+                    continue;
+                }
+            }
+
+            if let Some(tag) = tag {
+                if !item.tags.iter().any(|item_tag| item_tag == tag) {
+                    continue;
+                }
+            }
+
+            if !item.matches_current_platform()? {
+                continue;
+            }
+
+            items.push(item.clone());
+        }
+
+        Ok(Self { items })
+    }
+}
+
+impl Item {
+    fn matches_current_platform(&self) -> Result<bool> {
+        let Some(expr) = self.when.as_deref() else {
+            return Ok(true);
+        };
+
+        let (operator, expected_os) = parse_when_expression(expr)?;
+        let actual_os = current_platform();
+
+        Ok(match operator {
+            WhenOperator::Eq => actual_os == expected_os,
+            WhenOperator::Ne => actual_os != expected_os,
+        })
     }
 }
 
@@ -156,7 +188,51 @@ fn validate_config(config: &Config) -> Result<()> {
                 bail!("item `{name}` has an empty tag");
             }
         }
+        if let Some(expr) = item.when.as_deref() {
+            parse_when_expression(expr)?;
+        }
     }
 
     Ok(())
+}
+
+fn parse_when_expression(expr: &str) -> Result<(WhenOperator, &str)> {
+    let parts: Vec<_> = expr.split_whitespace().collect();
+    if parts.len() != 3 {
+        bail!("unsupported when expression `{expr}`; expected os == windows");
+    }
+
+    if parts[0] != "os" {
+        bail!(
+            "unsupported when variable `{}`; only `os` is supported",
+            parts[0]
+        );
+    }
+
+    let operator = match parts[1] {
+        "==" => WhenOperator::Eq,
+        "!=" => WhenOperator::Ne,
+        other => bail!("unsupported when operator `{other}`; use `==` or `!=`"),
+    };
+
+    let value = parse_string_literal(parts[2])?;
+    if !matches!(value, "macos" | "linux" | "windows") {
+        bail!("unsupported os value `{value}` in when expression");
+    }
+
+    Ok((operator, value))
+}
+
+fn parse_string_literal(input: &str) -> Result<&str> {
+    if input.len() < 2 {
+        bail!("unsupported when expression literal `{input}`");
+    }
+
+    let bytes = input.as_bytes();
+    let quote = bytes[0];
+    if (quote != 39 && quote != 34) || bytes[input.len() - 1] != quote {
+        bail!("unsupported when expression literal `{input}`; use single or double quotes");
+    }
+
+    Ok(&input[1..input.len() - 1])
 }
