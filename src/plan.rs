@@ -6,6 +6,7 @@ use anyhow::Result;
 use crate::config::{Config, Mode};
 use crate::path::{expand_path_from, path_exists, same_content, symlink_points_to};
 use crate::state::{ChangeState, StateStore, detect_change_state};
+use crate::template::render_template_source;
 
 #[derive(Debug, Clone)]
 pub struct ResolvedItem {
@@ -145,6 +146,10 @@ fn matches_desired_state(item: &ResolvedItem) -> Result<bool> {
     match item.mode {
         Mode::Copy => same_content(&item.source, &item.target),
         Mode::Symlink => symlink_points_to(&item.target, &item.source),
+        Mode::Template => {
+            let rendered = render_template_source(&item.source)?;
+            Ok(fs::read_to_string(&item.target)? == rendered)
+        }
     }
 }
 

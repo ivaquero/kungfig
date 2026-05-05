@@ -45,6 +45,7 @@ pub enum Mode {
     #[default]
     Copy,
     Symlink,
+    Template,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,6 +59,7 @@ impl std::fmt::Display for Mode {
         match self {
             Mode::Copy => write!(f, "copy"),
             Mode::Symlink => write!(f, "symlink"),
+            Mode::Template => write!(f, "template"),
         }
     }
 }

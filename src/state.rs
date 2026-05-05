@@ -205,6 +205,10 @@ pub fn collect_status(items: &[ResolvedItem], store: &StateStore) -> Result<Vec<
         let desired = match item.mode {
             Mode::Copy => same_content(&item.source, &item.target)?,
             Mode::Symlink => symlink_points_to(&item.target, &item.source)?,
+            Mode::Template => {
+                let rendered = crate::template::render_template_source(&item.source)?;
+                fs::read_to_string(&item.target)? == rendered
+            }
         };
 
         if desired {

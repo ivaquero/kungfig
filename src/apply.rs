@@ -6,6 +6,7 @@ use crate::path::{copy_path, create_symlink, remove_path};
 use crate::plan::{Action, Plan, ResolvedItem};
 use crate::state::ChangeState;
 use crate::state::StateStore;
+use crate::template::render_template_source;
 
 #[derive(Debug, Clone)]
 pub struct OperationResult {
@@ -174,6 +175,11 @@ fn materialize(
     match mode {
         Mode::Copy => copy_path(source, target)?,
         Mode::Symlink => create_symlink(target, source)?,
+        Mode::Template => {
+            let rendered = render_template_source(source)?;
+            crate::path::ensure_parent_dir(target)?;
+            std::fs::write(target, rendered)?;
+        }
     }
 
     let item = ResolvedItem {

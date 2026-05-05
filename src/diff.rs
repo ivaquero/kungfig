@@ -6,6 +6,7 @@ use similar::{ChangeTag, TextDiff};
 use crate::error::KungfigError;
 use crate::path::{path_exists, same_content, symlink_points_to};
 use crate::plan::ResolvedItem;
+use crate::template::render_template_source;
 
 pub fn diff_item(item: &ResolvedItem) -> Result<String> {
     if !path_exists(&item.source) {
@@ -22,16 +23,20 @@ pub fn diff_item(item: &ResolvedItem) -> Result<String> {
         return Err(KungfigError::UnsupportedDiff(item.name.clone()).into());
     }
 
-    if symlink_points_to(&item.target, &item.source)? {
-        return Ok("target already symlinks to source".to_string());
-    }
-
-    let source = fs::read_to_string(&item.source).or_else(|_| {
-        fs::read(&item.source).map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
-    })?;
+    let source = if item.mode == crate::config::Mode::Template {
+        render_template_source(&item.source)?
+    } else {
+        fs::read_to_string(&item.source).or_else(|_| {
+            fs::read(&item.source).map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+        })?
+    };
     let target = fs::read_to_string(&item.target).or_else(|_| {
         fs::read(&item.target).map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
     })?;
+
+    if symlink_points_to(&item.target, &item.source)? {
+        return Ok("target already symlinks to source".to_string());
+    }
 
     if source == target {
         return Ok("files match".to_string());
