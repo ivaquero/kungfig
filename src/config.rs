@@ -182,6 +182,7 @@ pub(crate) fn validate_config(config: &Config) -> Result<()> {
         if item.source.trim().is_empty() {
             bail!("item `{name}` has an empty source path");
         }
+        validate_target(name, &item.target)?;
         if !names.insert(name.to_string()) {
             bail!("duplicate item name: {name}");
         }
@@ -192,6 +193,42 @@ pub(crate) fn validate_config(config: &Config) -> Result<()> {
         }
         if let Some(expr) = item.when.as_deref() {
             parse_when_expression(expr)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_target(name: &str, target: &Target) -> Result<()> {
+    match target {
+        Target::Single(path) => {
+            if path.trim().is_empty() {
+                bail!("item `{name}` has an empty target path");
+            }
+        }
+        Target::Platform {
+            macos,
+            linux,
+            windows,
+        } => {
+            let mut has_platform_target = false;
+
+            for (platform, value) in [
+                ("macos", macos.as_deref()),
+                ("linux", linux.as_deref()),
+                ("windows", windows.as_deref()),
+            ] {
+                if let Some(path) = value {
+                    has_platform_target = true;
+                    if path.trim().is_empty() {
+                        bail!("item `{name}` has an empty `{platform}` target path");
+                    }
+                }
+            }
+
+            if !has_platform_target {
+                bail!("item `{name}` must define at least one platform target");
+            }
         }
     }
 
