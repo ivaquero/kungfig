@@ -11,38 +11,27 @@ KungFig is a cross-platform configuration manager written in Rust.
 
 ## Dependencies
 
+- anyhow: ergonomic error handling
 - clap: command line interface
 - serde: serialization/deserialization
+- serde_json: JSON parsing and merge support
+- serde_yaml: YAML parsing and merge support
 - toml: read TOML files
 - directories: read directory paths
-- camino: use UTF-8 encoded paths
-- ignore: ignore files and directories when scanning
+- sha2: compute file and tree digests
+- walkdir: traverse directories when copying and hashing
 
-## Modules
+## Quick Start
 
-### Root Module
-
-- `main.rs`: Entry point of program
-- `lib.rs`: Unified interface for CLI commands
-- `cli.rs`: Define CLI commands
-
-### core
-
-Core engine for configuration management.
-
-### config
-
-Configuration parser and validator.
-
-### fs
-
-File system operations.
-
-### state
-
-Data storage and retrieval.
+```bash
+rtk cargo run -- list
+rtk cargo run -- status
+rtk cargo run -- show wezterm
+```
 
 ## Manifest
+
+The starter manifest lives at [kungfig.toml](kungfig.toml).
 
 ### Fields
 
@@ -70,7 +59,7 @@ Data storage and retrieval.
 |  `merge`   | merge source file and target file | JSON/TOML/YAML |
 |  `script`  |  pass source path to run script   |                |
 
-### Variables
+### Built-in Variables
 
 - {backup}
 - {home}
@@ -81,6 +70,14 @@ Data storage and retrieval.
 - {documents}
 - {downloads}
 - {desktop}
+
+You can also define your own variables:
+
+```toml
+[vars]
+obsidian_vault = "{documents}/Obsidian"
+powershell_profile = "{documents}/PowerShell/Microsoft.PowerShell_profile.ps1"
+```
 
 ### Template
 
@@ -108,3 +105,32 @@ target = "{backup}/vscode/settings.json"
 mode = "copy"
 merge = "json"
 ```
+
+## Modules
+
+### Root Module
+
+- `main.rs`: Entry point of program
+- `lib.rs`: Unified interface for CLI commands
+- `cli.rs`: Define CLI commands
+
+### core module
+
+Core engine for configuration management.
+
+- `plan.rs`: Generate configuration actions
+- `apply.rs`: Apply configuration actions
+- `status.rs`: Check configuration status
+- `engine.rs`: Main configuration engine
+
+### config module
+
+Configuration parser and validator.
+
+### fs module
+
+File system operations.
+
+### state module
+
+Data storage and retrieval.

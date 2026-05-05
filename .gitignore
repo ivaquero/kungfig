@@ -13,6 +13,12 @@ Icon
 .history/
 .vscode
 
-# Python
-*.py
-pyproject.toml
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+
+# Rust
+target/
