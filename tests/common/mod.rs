@@ -66,6 +66,14 @@ pub fn run_kungfig_with_string_env(
     command.output().expect("failed to run kungfig binary")
 }
 
+pub fn run_git(workspace: &Path, args: &[&str]) -> std::process::Output {
+    Command::new("git")
+        .args(args)
+        .current_dir(workspace)
+        .output()
+        .expect("failed to run git")
+}
+
 pub fn write_manifest(workspace: &Path) {
     write_manifest_text(
         workspace,

@@ -1,7 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::{Command as ProcessCommand, Output};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 
 use crate::add::add_item;
@@ -59,6 +60,7 @@ enum Command {
         tag: Option<String>,
     },
     Doctor,
+    Sync,
     Add {
         path: String,
         #[arg(long)]
@@ -114,6 +116,7 @@ pub fn run() -> Result<i32> {
             run_rollback(&config, &manifest_path, tag.as_deref())
         }
         Command::Doctor => run_doctor_cli(&cli.manifest),
+        Command::Sync => run_sync(&cli.manifest),
         Command::Add { path, name } => {
             let (manifest_path, config) = load_config_or_empty(&cli.manifest)?;
             run_add(&config, &manifest_path, &path, &name)
@@ -350,6 +353,37 @@ fn run_doctor_cli(manifest: &Path) -> Result<i32> {
     Ok(if has_error { 1 } else { 0 })
 }
 
+fn run_sync(manifest: &Path) -> Result<i32> {
+    let manifest_path = resolve_manifest_path(manifest)?;
+    let repo_root = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+    let mut has_problem = false;
+
+    let pull = run_git(repo_root, &["pull"])?;
+    emit_output(&pull);
+    has_problem |= !pull.status.success();
+
+    match load_config(&manifest_path) {
+        Ok((manifest_path, config)) => {
+            let apply_code = run_apply(&config, &manifest_path, false, None)?;
+            has_problem |= apply_code != 0;
+        }
+        Err(err) => {
+            eprintln!("error: {err}");
+            has_problem = true;
+        }
+    }
+
+    let status = run_git(repo_root, &["status", "--short"])?;
+    if status.stdout.is_empty() && status.stderr.is_empty() {
+        println!("git status clean");
+    } else {
+        emit_output(&status);
+    }
+    has_problem |= !status.status.success();
+
+    Ok(if has_problem { 1 } else { 0 })
+}
+
 fn run_add(config: &Config, manifest_path: &Path, path: &str, name: &str) -> Result<i32> {
     let store = StateStore::open()?;
     let result = add_item(manifest_path, config, path, name, &store)?;
@@ -407,6 +441,38 @@ fn run_add_app(manifest: &Path, recipe_name: &str) -> Result<i32> {
     }
     println!("manifest {}", result.manifest.display());
     Ok(0)
+}
+
+fn run_git(repo_root: &Path, args: &[&str]) -> Result<Output> {
+    ProcessCommand::new("git")
+        .args(args)
+        .current_dir(repo_root)
+        .output()
+        .with_context(|| format!("failed to run git {}", args.join(" ")))
+}
+
+fn emit_output(output: &Output) {
+    if !output.stdout.is_empty() {
+        print!("{}", String::from_utf8_lossy(&output.stdout));
+        if !String::from_utf8_lossy(&output.stdout).ends_with('\n') {
+            println!();
+        }
+    }
+
+    if !output.stderr.is_empty() {
+        eprint!("{}", String::from_utf8_lossy(&output.stderr));
+        if !String::from_utf8_lossy(&output.stderr).ends_with('\n') {
+            eprintln!();
+        }
+    }
+}
+
+fn resolve_manifest_path(manifest: &Path) -> Result<PathBuf> {
+    if manifest.is_absolute() {
+        return Ok(manifest.to_path_buf());
+    }
+
+    Ok(std::env::current_dir()?.join(manifest))
 }
 
 fn select_config(config: &Config, name: Option<&str>, tag: Option<&str>) -> Result<Config> {
