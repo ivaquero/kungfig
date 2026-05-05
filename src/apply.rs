@@ -4,6 +4,7 @@ use crate::backup::backup_target;
 use crate::config::Mode;
 use crate::path::{copy_path, create_symlink, remove_path};
 use crate::plan::{Action, Plan, ResolvedItem};
+use crate::state::ChangeState;
 use crate::state::StateStore;
 
 #[derive(Debug, Clone)]
@@ -40,6 +41,7 @@ pub fn apply_plan(plan: &Plan, store: &StateStore) -> Result<Vec<OperationResult
                 source,
                 target,
                 mode,
+                ..
             } => match materialize(name, source, target, *mode, true, store) {
                 Ok(()) => results.push(OperationResult {
                     name: name.clone(),
@@ -57,15 +59,64 @@ pub fn apply_plan(plan: &Plan, store: &StateStore) -> Result<Vec<OperationResult
                 status: "skipped".to_string(),
                 detail: reason.clone(),
             }),
-            Action::Conflict { name, target } => results.push(OperationResult {
+            Action::Conflict {
+                name,
+                target,
+                reason,
+            } => results.push(OperationResult {
                 name: name.clone(),
                 status: "conflict".to_string(),
-                detail: target.display().to_string(),
+                detail: format!("{} ({reason})", target.display()),
             }),
         }
     }
 
     Ok(results)
+}
+
+pub fn preview_plan(plan: &Plan) -> Vec<OperationResult> {
+    let mut results = Vec::with_capacity(plan.actions.len());
+
+    for action in &plan.actions {
+        match action {
+            Action::Create { name, target, .. } => results.push(OperationResult {
+                name: name.clone(),
+                status: "would-create".to_string(),
+                detail: target.display().to_string(),
+            }),
+            Action::Update {
+                name,
+                target,
+                change_state,
+                ..
+            } => results.push(OperationResult {
+                name: name.clone(),
+                status: "would-update".to_string(),
+                detail: format!(
+                    "{} (target: {}; backup: {})",
+                    target.display(),
+                    describe_change_state(*change_state),
+                    target.display()
+                ),
+            }),
+            Action::Skip { name, reason } => results.push(OperationResult {
+                name: name.clone(),
+                status: "skipped".to_string(),
+                detail: reason.clone(),
+            }),
+            Action::Conflict {
+                name,
+                target,
+                reason,
+            } => results.push(OperationResult {
+                name: name.clone(),
+                status: "conflict".to_string(),
+                detail: format!("{} ({reason})", target.display()),
+            }),
+        }
+    }
+
+    results
 }
 
 pub fn rollback_items(items: &[ResolvedItem], store: &StateStore) -> Result<Vec<OperationResult>> {
@@ -94,6 +145,15 @@ pub fn rollback_items(items: &[ResolvedItem], store: &StateStore) -> Result<Vec<
     }
 
     Ok(results)
+}
+
+fn describe_change_state(change_state: ChangeState) -> &'static str {
+    match change_state {
+        ChangeState::Clean => "clean",
+        ChangeState::Modified => "modified",
+        ChangeState::Conflict => "conflict",
+        ChangeState::Untracked => "untracked",
+    }
 }
 
 fn materialize(

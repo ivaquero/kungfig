@@ -4,9 +4,10 @@ use std::path::{Path, PathBuf};
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
 
-use crate::apply::{apply_plan, rollback_items};
+use crate::apply::{apply_plan, preview_plan, rollback_items};
 use crate::config::{Config, load_config};
 use crate::diff::diff_item;
+use crate::doctor::run_doctor;
 use crate::plan::{Action, build_plan, resolve_items};
 use crate::state::{StateStore, collect_status};
 
@@ -31,9 +32,13 @@ enum Command {
     },
     Plan,
     Diff,
-    Apply,
+    Apply {
+        #[arg(long)]
+        dry_run: bool,
+    },
     Status,
     Rollback,
+    Doctor,
 }
 
 pub fn run() -> Result<i32> {
@@ -49,9 +54,9 @@ pub fn run() -> Result<i32> {
             let (manifest_path, config) = load_config(&cli.manifest)?;
             run_diff(&config, &manifest_path)
         }
-        Command::Apply => {
+        Command::Apply { dry_run } => {
             let (manifest_path, config) = load_config(&cli.manifest)?;
-            run_apply(&config, &manifest_path)
+            run_apply(&config, &manifest_path, dry_run)
         }
         Command::Status => {
             let (manifest_path, config) = load_config(&cli.manifest)?;
@@ -61,6 +66,7 @@ pub fn run() -> Result<i32> {
             let (manifest_path, config) = load_config(&cli.manifest)?;
             run_rollback(&config, &manifest_path)
         }
+        Command::Doctor => run_doctor_cli(&cli.manifest),
     }
 }
 
@@ -81,7 +87,8 @@ fn init_manifest(path: &Path, force: bool) -> Result<i32> {
 }
 
 fn run_plan(config: &Config, manifest_path: &Path) -> Result<i32> {
-    let plan = build_plan(config, manifest_path)?;
+    let store = StateStore::open()?;
+    let plan = build_plan(config, manifest_path, Some(&store))?;
     let mut has_conflict = false;
 
     for action in plan.actions {
@@ -103,19 +110,25 @@ fn run_plan(config: &Config, manifest_path: &Path) -> Result<i32> {
                 source,
                 target,
                 mode,
+                change_state,
             } => println!(
-                "update   {:<18} {:<7} {} -> {}",
+                "update   {:<18} {:<7} {} -> {} ({})",
                 name,
                 mode,
                 source.display(),
-                target.display()
+                target.display(),
+                change_state
             ),
             Action::Skip { name, reason } => {
                 println!("skip     {:<18} {}", name, reason);
             }
-            Action::Conflict { name, target } => {
+            Action::Conflict {
+                name,
+                target,
+                reason,
+            } => {
                 has_conflict = true;
-                println!("conflict {:<18} {}", name, target.display());
+                println!("conflict {:<18} {} ({reason})", name, target.display());
             }
         }
     }
@@ -134,10 +147,14 @@ fn run_diff(config: &Config, manifest_path: &Path) -> Result<i32> {
     Ok(0)
 }
 
-fn run_apply(config: &Config, manifest_path: &Path) -> Result<i32> {
+fn run_apply(config: &Config, manifest_path: &Path, dry_run: bool) -> Result<i32> {
     let store = StateStore::open()?;
-    let plan = build_plan(config, manifest_path)?;
-    let results = apply_plan(&plan, &store)?;
+    let plan = build_plan(config, manifest_path, Some(&store))?;
+    let results = if dry_run {
+        preview_plan(&plan)
+    } else {
+        apply_plan(&plan, &store)?
+    };
     let mut has_problem = false;
 
     for result in results {
@@ -172,6 +189,18 @@ fn run_rollback(config: &Config, manifest_path: &Path) -> Result<i32> {
     for result in results {
         println!("{:<9} {:<18} {}", result.status, result.name, result.detail);
         has_error |= result.status == "error";
+    }
+
+    Ok(if has_error { 1 } else { 0 })
+}
+
+fn run_doctor_cli(manifest: &Path) -> Result<i32> {
+    let checks = run_doctor(manifest)?;
+    let mut has_error = false;
+
+    for check in checks {
+        println!("{:<8} {:<18} {}", check.status, check.name, check.detail);
+        has_error |= check.status == "error";
     }
 
     Ok(if has_error { 1 } else { 0 })

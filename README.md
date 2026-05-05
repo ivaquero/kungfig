@@ -27,12 +27,12 @@ KungFig is a cross-platform configuration manager written in Rust.
 ## Quick Start
 
 ```bash
-rtk cargo run -- init
-rtk cargo run -- plan
-rtk cargo run -- diff
-rtk cargo run -- apply
-rtk cargo run -- status
-rtk cargo run -- rollback
+cargo run -- init
+cargo run -- plan
+cargo run -- diff
+cargo run -- apply
+cargo run -- status
+cargo run -- rollback
 ```
 
 ## Manifest

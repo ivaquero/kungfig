@@ -33,6 +33,25 @@ pub struct StatusEntry {
     pub detail: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChangeState {
+    Clean,
+    Modified,
+    Conflict,
+    Untracked,
+}
+
+impl std::fmt::Display for ChangeState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ChangeState::Clean => write!(f, "clean"),
+            ChangeState::Modified => write!(f, "modified"),
+            ChangeState::Conflict => write!(f, "conflict"),
+            ChangeState::Untracked => write!(f, "untracked"),
+        }
+    }
+}
+
 impl StateStore {
     pub fn open() -> Result<Self> {
         let dirs = app_dirs()?;
@@ -197,21 +216,23 @@ pub fn collect_status(items: &[ResolvedItem], store: &StateStore) -> Result<Vec<
             continue;
         }
 
-        let current_target_hash = hash_path(&item.target)?;
-        match store.managed_record(&item.name)? {
-            Some(record) if record.target_hash == current_target_hash => {
-                statuses.push(StatusEntry {
-                    name: item.name.clone(),
-                    status: "pending".to_string(),
-                    detail: "source changed but target still matches last apply".to_string(),
-                })
-            }
-            Some(_) => statuses.push(StatusEntry {
+        match detect_change_state(item, store)? {
+            ChangeState::Clean => statuses.push(StatusEntry {
                 name: item.name.clone(),
-                status: "drift".to_string(),
-                detail: "target differs from last applied state".to_string(),
+                status: "pending".to_string(),
+                detail: "source changed and target is clean".to_string(),
             }),
-            None => statuses.push(StatusEntry {
+            ChangeState::Modified => statuses.push(StatusEntry {
+                name: item.name.clone(),
+                status: "modified".to_string(),
+                detail: "target was edited outside kungfig".to_string(),
+            }),
+            ChangeState::Conflict => statuses.push(StatusEntry {
+                name: item.name.clone(),
+                status: "conflict".to_string(),
+                detail: "source and target both changed since last apply".to_string(),
+            }),
+            ChangeState::Untracked => statuses.push(StatusEntry {
                 name: item.name.clone(),
                 status: "unmanaged".to_string(),
                 detail: "item differs and has no state record".to_string(),
@@ -220,6 +241,23 @@ pub fn collect_status(items: &[ResolvedItem], store: &StateStore) -> Result<Vec<
     }
 
     Ok(statuses)
+}
+
+pub fn detect_change_state(item: &ResolvedItem, store: &StateStore) -> Result<ChangeState> {
+    let Some(record) = store.managed_record(&item.name)? else {
+        return Ok(ChangeState::Untracked);
+    };
+
+    let current_source_hash = hash_path(&item.source)?;
+    let current_target_hash = hash_path(&item.target)?;
+    let source_changed = record.source_hash != current_source_hash;
+    let target_changed = record.target_hash != current_target_hash;
+
+    Ok(match (source_changed, target_changed) {
+        (_, false) => ChangeState::Clean,
+        (false, true) => ChangeState::Modified,
+        (true, true) => ChangeState::Conflict,
+    })
 }
 
 fn now_timestamp() -> String {

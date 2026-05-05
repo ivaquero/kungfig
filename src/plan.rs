@@ -5,6 +5,7 @@ use anyhow::Result;
 
 use crate::config::{Config, Mode};
 use crate::path::{expand_path_from, path_exists, same_content, symlink_points_to};
+use crate::state::{ChangeState, StateStore, detect_change_state};
 
 #[derive(Debug, Clone)]
 pub struct ResolvedItem {
@@ -32,6 +33,7 @@ pub enum Action {
         source: PathBuf,
         target: PathBuf,
         mode: Mode,
+        change_state: ChangeState,
     },
     Skip {
         name: String,
@@ -40,6 +42,7 @@ pub enum Action {
     Conflict {
         name: String,
         target: PathBuf,
+        reason: String,
     },
 }
 
@@ -61,7 +64,11 @@ pub fn resolve_items(config: &Config, manifest_path: &Path) -> Result<Vec<Resolv
     Ok(items)
 }
 
-pub fn build_plan(config: &Config, manifest_path: &Path) -> Result<Plan> {
+pub fn build_plan(
+    config: &Config,
+    manifest_path: &Path,
+    store: Option<&StateStore>,
+) -> Result<Plan> {
     let resolved_items = resolve_items(config, manifest_path)?;
     let mut actions = Vec::with_capacity(resolved_items.len());
 
@@ -88,6 +95,7 @@ pub fn build_plan(config: &Config, manifest_path: &Path) -> Result<Plan> {
             actions.push(Action::Conflict {
                 name: item.name,
                 target: item.target,
+                reason: "source and target types differ".to_string(),
             });
             continue;
         }
@@ -100,11 +108,33 @@ pub fn build_plan(config: &Config, manifest_path: &Path) -> Result<Plan> {
             continue;
         }
 
+        if let Some(store) = store {
+            let change_state = detect_change_state(&item, store)?;
+            if change_state == ChangeState::Conflict {
+                actions.push(Action::Conflict {
+                    name: item.name,
+                    target: item.target,
+                    reason: "source and target both changed since last apply".to_string(),
+                });
+                continue;
+            }
+
+            actions.push(Action::Update {
+                name: item.name,
+                source: item.source,
+                target: item.target,
+                mode: item.mode,
+                change_state,
+            });
+            continue;
+        }
+
         actions.push(Action::Update {
             name: item.name,
             source: item.source,
             target: item.target,
             mode: item.mode,
+            change_state: ChangeState::Untracked,
         });
     }
 

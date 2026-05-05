@@ -3,6 +3,7 @@ pub mod backup;
 pub mod cli;
 pub mod config;
 pub mod diff;
+pub mod doctor;
 pub mod error;
 pub mod path;
 pub mod plan;
