@@ -356,11 +356,14 @@ fn run_doctor_cli(manifest: &Path) -> Result<i32> {
 fn run_sync(manifest: &Path) -> Result<i32> {
     let manifest_path = resolve_manifest_path(manifest)?;
     let repo_root = manifest_path.parent().unwrap_or_else(|| Path::new("."));
-    let mut has_problem = false;
 
     let pull = run_git(repo_root, &["pull"])?;
     emit_output(&pull);
-    has_problem |= !pull.status.success();
+    if !pull.status.success() {
+        return Ok(1);
+    }
+
+    let mut has_problem = false;
 
     match load_config(&manifest_path) {
         Ok((manifest_path, config)) => {
