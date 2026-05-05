@@ -60,6 +60,7 @@ fn doctor_reports_healthy_workspace() {
     assert!(stdout.contains("target-writable"));
     assert!(stdout.contains("state-db"));
     assert!(stdout.contains("backup-dir"));
+    assert!(!workspace.join(".state/state.db").exists());
 }
 
 #[test]

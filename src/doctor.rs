@@ -8,7 +8,6 @@ use anyhow::Result;
 use crate::config::{Config, load_config};
 use crate::path::app_dirs;
 use crate::plan::resolve_items;
-use crate::state::StateStore;
 
 #[derive(Debug, Clone)]
 pub struct DoctorCheck {
@@ -243,17 +242,28 @@ fn check_windows_symlink_support() -> DoctorCheck {
 }
 
 fn check_state_store(state_db: &Path) -> DoctorCheck {
-    match StateStore::open() {
-        Ok(_) => DoctorCheck {
+    if state_db.exists() {
+        match OpenOptions::new().read(true).write(true).open(state_db) {
+            Ok(_) => DoctorCheck {
+                name: "state-db".to_string(),
+                status: "ok".to_string(),
+                detail: state_db.display().to_string(),
+            },
+            Err(err) => DoctorCheck {
+                name: "state-db".to_string(),
+                status: "error".to_string(),
+                detail: err.to_string(),
+            },
+        }
+    } else {
+        DoctorCheck {
             name: "state-db".to_string(),
             status: "ok".to_string(),
-            detail: state_db.display().to_string(),
-        },
-        Err(err) => DoctorCheck {
-            name: "state-db".to_string(),
-            status: "error".to_string(),
-            detail: err.to_string(),
-        },
+            detail: format!(
+                "missing {}; will be created on first use",
+                state_db.display()
+            ),
+        }
     }
 }
 
