@@ -4,10 +4,12 @@ use std::path::{Path, PathBuf};
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
 
+use crate::add::add_item;
 use crate::apply::{apply_plan, preview_plan, rollback_items};
-use crate::config::{Config, load_config};
+use crate::config::{Config, load_config, load_config_or_empty};
 use crate::diff::diff_item;
 use crate::doctor::run_doctor;
+use crate::edit::edit_target;
 use crate::plan::{Action, build_plan, resolve_items};
 use crate::state::{StateStore, collect_status};
 
@@ -31,7 +33,11 @@ enum Command {
         force: bool,
     },
     Plan,
-    Diff,
+    Diff {
+        name: Option<String>,
+        #[arg(long)]
+        summary: bool,
+    },
     Apply {
         #[arg(long)]
         dry_run: bool,
@@ -39,6 +45,14 @@ enum Command {
     Status,
     Rollback,
     Doctor,
+    Add {
+        path: String,
+        #[arg(long)]
+        name: String,
+    },
+    Edit {
+        name: Option<String>,
+    },
 }
 
 pub fn run() -> Result<i32> {
@@ -50,9 +64,9 @@ pub fn run() -> Result<i32> {
             let (manifest_path, config) = load_config(&cli.manifest)?;
             run_plan(&config, &manifest_path)
         }
-        Command::Diff => {
+        Command::Diff { name, summary } => {
             let (manifest_path, config) = load_config(&cli.manifest)?;
-            run_diff(&config, &manifest_path)
+            run_diff(&config, &manifest_path, name.as_deref(), summary)
         }
         Command::Apply { dry_run } => {
             let (manifest_path, config) = load_config(&cli.manifest)?;
@@ -67,6 +81,14 @@ pub fn run() -> Result<i32> {
             run_rollback(&config, &manifest_path)
         }
         Command::Doctor => run_doctor_cli(&cli.manifest),
+        Command::Add { path, name } => {
+            let (manifest_path, config) = load_config_or_empty(&cli.manifest)?;
+            run_add(&config, &manifest_path, &path, &name)
+        }
+        Command::Edit { name } => {
+            let (manifest_path, config) = load_config(&cli.manifest)?;
+            run_edit(&config, &manifest_path, name.as_deref())
+        }
     }
 }
 
@@ -136,8 +158,60 @@ fn run_plan(config: &Config, manifest_path: &Path) -> Result<i32> {
     Ok(if has_conflict { 1 } else { 0 })
 }
 
-fn run_diff(config: &Config, manifest_path: &Path) -> Result<i32> {
-    for item in resolve_items(config, manifest_path)? {
+fn run_diff(
+    config: &Config,
+    manifest_path: &Path,
+    name: Option<&str>,
+    summary: bool,
+) -> Result<i32> {
+    let selected = select_config(config, name)?;
+    if summary {
+        let store = StateStore::open()?;
+        let plan = build_plan(&selected, manifest_path, Some(&store))?;
+        let mut has_conflict = false;
+        let mut printed = false;
+
+        for action in plan.actions {
+            match action {
+                Action::Create { name, target, .. } => {
+                    printed = true;
+                    println!("create   {:<18} {}", name, target.display());
+                }
+                Action::Update {
+                    name,
+                    target,
+                    change_state,
+                    ..
+                } => {
+                    printed = true;
+                    println!(
+                        "update   {:<18} {} ({})",
+                        name,
+                        target.display(),
+                        change_state
+                    );
+                }
+                Action::Conflict {
+                    name,
+                    target,
+                    reason,
+                } => {
+                    printed = true;
+                    has_conflict = true;
+                    println!("conflict {:<18} {} ({reason})", name, target.display());
+                }
+                Action::Skip { .. } => {}
+            }
+        }
+
+        if !printed {
+            println!("no changes");
+        }
+
+        return Ok(if has_conflict { 1 } else { 0 });
+    }
+
+    for item in resolve_items(&selected, manifest_path)? {
         println!("== {} ==", item.name);
         println!("source: {}", item.source.display());
         println!("target: {}", item.target.display());
@@ -204,6 +278,43 @@ fn run_doctor_cli(manifest: &Path) -> Result<i32> {
     }
 
     Ok(if has_error { 1 } else { 0 })
+}
+
+fn run_add(config: &Config, manifest_path: &Path, path: &str, name: &str) -> Result<i32> {
+    let store = StateStore::open()?;
+    let result = add_item(manifest_path, config, path, name, &store)?;
+    println!(
+        "added    {:<18} {} -> {}",
+        result.name,
+        result.target.display(),
+        result.source.display()
+    );
+    println!("manifest {}", result.manifest.display());
+    Ok(0)
+}
+
+fn run_edit(config: &Config, manifest_path: &Path, name: Option<&str>) -> Result<i32> {
+    let result = edit_target(config, manifest_path, name)?;
+    println!("opened   {:<18} {}", result.editor, result.target.display());
+    Ok(0)
+}
+
+fn select_config(config: &Config, name: Option<&str>) -> Result<Config> {
+    let Some(name) = name else {
+        return Ok(config.clone());
+    };
+
+    let items: Vec<_> = config
+        .items
+        .iter()
+        .filter(|item| item.name == name)
+        .cloned()
+        .collect();
+    if items.is_empty() {
+        bail!("item `{name}` not found");
+    }
+
+    Ok(Config { items })
 }
 
 const DEFAULT_MANIFEST: &str = r#"

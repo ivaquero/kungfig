@@ -9,8 +9,9 @@ use serde::Deserialize;
 use crate::error::KungfigError;
 use crate::path::current_platform;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct Config {
+    #[serde(default)]
     pub items: Vec<Item>,
 }
 
@@ -79,6 +80,24 @@ pub fn load_config(path: &Path) -> Result<(PathBuf, Config)> {
     let manifest_path = normalize_manifest_path(path)?;
     let text = fs::read_to_string(&manifest_path)
         .with_context(|| format!("failed to read {}", manifest_path.display()))?;
+    let config: Config = toml::from_str(&text)
+        .with_context(|| format!("failed to parse {}", manifest_path.display()))?;
+    validate_config(&config)?;
+    Ok((manifest_path, config))
+}
+
+pub fn load_config_or_empty(path: &Path) -> Result<(PathBuf, Config)> {
+    let manifest_path = normalize_manifest_path(path)?;
+    if !manifest_path.exists() {
+        return Ok((manifest_path, Config::default()));
+    }
+
+    let text = fs::read_to_string(&manifest_path)
+        .with_context(|| format!("failed to read {}", manifest_path.display()))?;
+    if text.trim().is_empty() {
+        return Ok((manifest_path, Config::default()));
+    }
+
     let config: Config = toml::from_str(&text)
         .with_context(|| format!("failed to parse {}", manifest_path.display()))?;
     validate_config(&config)?;

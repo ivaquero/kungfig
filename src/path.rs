@@ -54,7 +54,7 @@ pub fn expand_path(input: &str) -> Result<PathBuf> {
 }
 
 pub fn expand_path_from(base_dir: &Path, input: &str) -> Result<PathBuf> {
-    let expanded = substitute_variables(input)?;
+    let expanded = substitute_variables(&expand_tilde(input)?)?;
     let path = PathBuf::from(expanded);
     if path.is_absolute() {
         Ok(path)
@@ -180,6 +180,63 @@ pub fn symlink_points_to(link_path: &Path, target_path: &Path) -> Result<bool> {
     Ok(normalize_path(&actual) == normalize_path(target_path))
 }
 
+pub fn compact_path_for_manifest(path: &Path) -> Result<String> {
+    let base_dirs =
+        BaseDirs::new().ok_or_else(|| anyhow!("could not determine base directories"))?;
+    let user_dirs = UserDirs::new();
+    let absolute = normalize_path(path);
+
+    let mappings = [
+        ("home", base_dirs.home_dir().to_path_buf()),
+        ("config", base_dirs.config_dir().to_path_buf()),
+        ("data", base_dirs.data_dir().to_path_buf()),
+        ("cache", base_dirs.cache_dir().to_path_buf()),
+        (
+            "appdata",
+            if current_platform() == "windows" {
+                env::var_os("APPDATA")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| base_dirs.config_dir().to_path_buf())
+            } else {
+                base_dirs.config_dir().to_path_buf()
+            },
+        ),
+        (
+            "localappdata",
+            if current_platform() == "windows" {
+                env::var_os("LOCALAPPDATA")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| base_dirs.data_local_dir().to_path_buf())
+            } else {
+                base_dirs.data_local_dir().to_path_buf()
+            },
+        ),
+        (
+            "documents",
+            user_dirs
+                .and_then(|dirs| dirs.document_dir().map(Path::to_path_buf))
+                .unwrap_or_else(|| base_dirs.home_dir().join("Documents")),
+        ),
+    ];
+
+    for (name, root) in mappings {
+        if absolute == root {
+            return Ok(format!("{{{name}}}"));
+        }
+
+        if let Ok(relative) = absolute.strip_prefix(&root) {
+            if relative.as_os_str().is_empty() {
+                return Ok(format!("{{{name}}}"));
+            }
+
+            let relative = relative.to_string_lossy().replace('\\', "/");
+            return Ok(format!("{{{name}}}/{relative}"));
+        }
+    }
+
+    Ok(absolute.to_string_lossy().replace('\\', "/"))
+}
+
 fn substitute_variables(input: &str) -> Result<String> {
     let mut output = String::with_capacity(input.len());
     let mut rest = input;
@@ -199,6 +256,22 @@ fn substitute_variables(input: &str) -> Result<String> {
 
     output.push_str(rest);
     Ok(output)
+}
+
+fn expand_tilde(input: &str) -> Result<String> {
+    if input == "~" {
+        let base_dirs =
+            BaseDirs::new().ok_or_else(|| anyhow!("could not determine base directories"))?;
+        return Ok(base_dirs.home_dir().display().to_string());
+    }
+
+    if let Some(rest) = input.strip_prefix("~/") {
+        let base_dirs =
+            BaseDirs::new().ok_or_else(|| anyhow!("could not determine base directories"))?;
+        return Ok(base_dirs.home_dir().join(rest).display().to_string());
+    }
+
+    Ok(input.to_string())
 }
 
 fn variable_value(key: &str) -> Result<String> {

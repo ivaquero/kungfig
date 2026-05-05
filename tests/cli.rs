@@ -14,24 +14,43 @@ fn workspace() -> PathBuf {
 }
 
 fn run_kungfig(workspace: &Path, args: &[&str]) -> std::process::Output {
+    run_kungfig_with_env(workspace, args, &[])
+}
+
+fn run_kungfig_with_env(
+    workspace: &Path,
+    args: &[&str],
+    envs: &[(&str, &std::path::Path)],
+) -> std::process::Output {
     let state_root = workspace.join(".state");
-    Command::new(env!("CARGO_BIN_EXE_kungfig"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_kungfig"));
+    command
         .args(args)
         .current_dir(workspace)
         .env("KUNGFIG_STATE_DB", state_root.join("state.db"))
-        .env("KUNGFIG_BACKUP_DIR", state_root.join("backups"))
-        .output()
-        .expect("failed to run kungfig binary")
+        .env("KUNGFIG_BACKUP_DIR", state_root.join("backups"));
+
+    for (key, value) in envs {
+        command.env(key, value);
+    }
+
+    command.output().expect("failed to run kungfig binary")
 }
 
 fn write_manifest(workspace: &Path) {
-    let manifest = r#"
+    write_manifest_text(
+        workspace,
+        r#"
 [[items]]
 name = "gitconfig"
 source = "repo/gitconfig"
 target = "live/.gitconfig"
 mode = "copy"
-"#;
+"#,
+    );
+}
+
+fn write_manifest_text(workspace: &Path, manifest: &str) {
     fs::write(workspace.join("kungfig.toml"), manifest).expect("write manifest");
 }
 
@@ -117,6 +136,39 @@ fn dry_run_reports_backup_without_touching_target() {
 }
 
 #[test]
+fn add_copies_existing_config_updates_manifest_and_records_state() {
+    let workspace = workspace();
+    fs::create_dir_all(workspace.join("live")).expect("create live dir");
+    fs::write(
+        workspace.join("live/.gitconfig"),
+        "[user]\nname = \"ada\"\n",
+    )
+    .expect("write target");
+    write_manifest_text(workspace.as_path(), "");
+
+    let add = run_kungfig(
+        &workspace,
+        &["add", "live/.gitconfig", "--name", "gitconfig"],
+    );
+    assert!(add.status.success(), "{:?}", add);
+
+    let source_path = workspace.join("dotfiles/gitconfig");
+    assert_eq!(
+        fs::read_to_string(&source_path).expect("read adopted source"),
+        "[user]\nname = \"ada\"\n"
+    );
+
+    let manifest = fs::read_to_string(workspace.join("kungfig.toml")).expect("read manifest");
+    assert!(manifest.contains("name = \"gitconfig\""));
+    assert!(manifest.contains("source = \"dotfiles/gitconfig\""));
+    assert!(manifest.contains("target = \"live/.gitconfig\""));
+
+    let status = run_kungfig(&workspace, &["status"]);
+    assert!(status.status.success(), "{:?}", status);
+    assert!(String::from_utf8_lossy(&status.stdout).contains("synced"));
+}
+
+#[test]
 fn status_reports_modified_when_target_changes_only() {
     let workspace = workspace();
     fs::create_dir_all(workspace.join("repo")).expect("create repo dir");
@@ -132,6 +184,100 @@ fn status_reports_modified_when_target_changes_only() {
 
     let stdout = String::from_utf8_lossy(&status.stdout);
     assert!(stdout.contains("modified"));
+}
+
+#[test]
+fn edit_opens_item_source_with_editor_env() {
+    let workspace = workspace();
+    fs::create_dir_all(workspace.join("repo")).expect("create repo dir");
+    fs::write(workspace.join("repo/gitconfig"), "[core]\neditor = vim\n").expect("write source");
+    write_manifest(&workspace);
+
+    let editor_script = workspace.join("fake-editor.sh");
+    fs::write(
+        &editor_script,
+        "#!/bin/sh\nprintf '%s' \"$1\" > \"$EDIT_LOG\"\n",
+    )
+    .expect("write editor script");
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&editor_script)
+            .expect("editor metadata")
+            .permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&editor_script, perms).expect("chmod editor script");
+    }
+
+    let edit_log = workspace.join("edit.log");
+    let edit = run_kungfig_with_env(
+        &workspace,
+        &["edit", "gitconfig"],
+        &[("EDITOR", &editor_script), ("EDIT_LOG", &edit_log)],
+    );
+    assert!(edit.status.success(), "{:?}", edit);
+
+    let opened = fs::read_to_string(&edit_log).expect("read edit log");
+    let expected = fs::canonicalize(workspace.join("repo/gitconfig")).expect("canonical source");
+    let actual = fs::canonicalize(opened).expect("canonical opened path");
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn diff_summary_lists_changed_items_only() {
+    let workspace = workspace();
+    fs::create_dir_all(workspace.join("repo")).expect("create repo dir");
+    fs::write(workspace.join("repo/gitconfig"), "v1\n").expect("write source");
+    write_manifest(&workspace);
+
+    let first_apply = run_kungfig(&workspace, &["apply"]);
+    assert!(first_apply.status.success(), "{:?}", first_apply);
+
+    fs::write(workspace.join("repo/gitconfig"), "v2\n").expect("write source update");
+    let diff = run_kungfig(&workspace, &["diff", "--summary"]);
+    assert!(diff.status.success(), "{:?}", diff);
+
+    let stdout = String::from_utf8_lossy(&diff.stdout);
+    assert!(stdout.contains("update"));
+    assert!(stdout.contains("gitconfig"));
+    assert!(!stdout.contains("== gitconfig =="));
+}
+
+#[test]
+fn diff_can_focus_on_single_item() {
+    let workspace = workspace();
+    fs::create_dir_all(workspace.join("repo")).expect("create repo dir");
+    fs::write(workspace.join("repo/gitconfig"), "v2\n").expect("write git source");
+    fs::write(workspace.join("repo/zshrc"), "alias ll='eza'\n").expect("write zsh source");
+    write_manifest_text(
+        &workspace,
+        r#"
+[[items]]
+name = "gitconfig"
+source = "repo/gitconfig"
+target = "live/.gitconfig"
+mode = "copy"
+
+[[items]]
+name = "zshrc"
+source = "repo/zshrc"
+target = "live/.zshrc"
+mode = "copy"
+"#,
+    );
+    fs::create_dir_all(workspace.join("live")).expect("create live dir");
+    fs::write(workspace.join("live/.gitconfig"), "v1\n").expect("write git target");
+    fs::write(workspace.join("live/.zshrc"), "alias ll='ls'\n").expect("write zsh target");
+
+    let diff = run_kungfig(&workspace, &["diff", "gitconfig"]);
+    assert!(diff.status.success(), "{:?}", diff);
+
+    let stdout = String::from_utf8_lossy(&diff.stdout);
+    assert!(stdout.contains("== gitconfig =="));
+    assert!(stdout.contains("-v1"));
+    assert!(stdout.contains("+v2"));
+    assert!(!stdout.contains("== zshrc =="));
 }
 
 #[test]
