@@ -64,6 +64,51 @@ fn doctor_reports_healthy_workspace() {
 }
 
 #[test]
+fn template_prints_the_starter_manifest() {
+    let workspace = workspace();
+
+    let output = run_kungfig(&workspace, &["template"]);
+    assert!(output.status.success(), "{:?}", output);
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("[[items]]"));
+    assert!(stdout.contains("name = \"gitconfig\""));
+    assert!(stdout.contains("target = \"{home}/.gitconfig\""));
+}
+
+#[test]
+fn template_can_be_exported_to_a_custom_path() {
+    let workspace = workspace();
+
+    let output = run_kungfig(
+        &workspace,
+        &["template", "--output", "templates/kungfig.toml"],
+    );
+    assert!(output.status.success(), "{:?}", output);
+
+    let template_path = workspace.join("templates/kungfig.toml");
+    assert!(template_path.exists());
+    let template = fs::read_to_string(template_path).expect("read exported template");
+    assert!(template.contains("name = \"vscode-settings\""));
+}
+
+#[test]
+fn init_can_write_to_a_custom_manifest_path() {
+    let workspace = workspace();
+
+    let output = run_kungfig(
+        &workspace,
+        &["--manifest", "config/kungfig.toml", "init", "--force"],
+    );
+    assert!(output.status.success(), "{:?}", output);
+
+    let manifest_path = workspace.join("config/kungfig.toml");
+    assert!(manifest_path.exists());
+    let manifest = fs::read_to_string(manifest_path).expect("read custom manifest");
+    assert!(manifest.contains("name = \"gitconfig\""));
+}
+
+#[test]
 fn dry_run_reports_update_without_touching_target() {
     let workspace = workspace();
     fs::create_dir_all(workspace.join("repo")).expect("create repo dir");

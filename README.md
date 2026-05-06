@@ -31,11 +31,21 @@ KungFig is a cross-platform configuration manager written in Rust.
 
 - `init`
 
-Create a starter manifest in the current directory, or overwrite an existing one with `--force`.
+Create a starter manifest in the current directory, or write it to a custom path with `--manifest` and `--force`.
 
 ```bash
 cargo run -- init
 cargo run -- init --force
+cargo run -- --manifest configs/kungfig.toml init --force
+```
+
+- `template`
+
+Export the starter TOML template to stdout, or write it to a custom file with `--output`.
+
+```bash
+cargo run -- template
+cargo run -- template --output kungfig.toml
 ```
 
 - `plan`
@@ -107,6 +117,7 @@ cargo run -- doctor
 flowchart TD
     U[User] --> CLI[KungFig CLI]
     CLI --> INIT[init]
+    CLI --> TEMPLATE[template]
     CLI --> PLAN[plan]
     CLI --> DIFF[diff]
     CLI --> APPLY[apply]
@@ -115,7 +126,8 @@ flowchart TD
     CLI --> SYNC[sync]
     CLI --> DOCTOR[doctor]
     CLI --> RECIPE[recipe / add-app]
-    INIT --> WRITE[write starter kungfig.toml]
+    INIT --> WRITE[write starter manifest]
+    TEMPLATE --> WRITE[export starter template]
 ```
 
 ### Manifest Execution
@@ -157,7 +169,7 @@ flowchart TD
 
 ## Manifest
 
-The starter manifest lives at [kungfig.toml](kungfig.toml).
+The starter manifest defaults to [kungfig.toml](kungfig.toml), but you can point `--manifest` at another path.
 
 ### Fields
 

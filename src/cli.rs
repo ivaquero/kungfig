@@ -34,6 +34,10 @@ enum Command {
         #[arg(long)]
         force: bool,
     },
+    Template {
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
     Plan {
         #[arg(long)]
         tag: Option<String>,
@@ -89,6 +93,7 @@ pub fn run() -> Result<i32> {
 
     match cli.command {
         Command::Init { force } => init_manifest(&cli.manifest, force),
+        Command::Template { output } => export_manifest_template(output.as_deref()),
         Command::Plan { tag } => {
             let (manifest_path, config) = load_config(&cli.manifest)?;
             run_plan(&config, &manifest_path, tag.as_deref())
@@ -138,11 +143,26 @@ fn init_manifest(path: &Path, force: bool) -> Result<i32> {
         );
     }
 
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(path, format!("{}\n", DEFAULT_MANIFEST.trim()))?;
+    write_manifest_template(path)?;
     println!("wrote {}", path.display());
+    Ok(0)
+}
+
+fn export_manifest_template(output: Option<&Path>) -> Result<i32> {
+    match output {
+        Some(path) => {
+            write_manifest_template(path)?;
+            println!("wrote {}", path.display());
+        }
+        None => {
+            let template = manifest_template();
+            print!("{template}");
+            if !template.ends_with('\n') {
+                println!();
+            }
+        }
+    }
+
     Ok(0)
 }
 
@@ -487,6 +507,18 @@ fn select_config(config: &Config, name: Option<&str>, tag: Option<&str>) -> Resu
     }
 
     config.filtered(name, tag)
+}
+
+fn manifest_template() -> &'static str {
+    DEFAULT_MANIFEST.trim()
+}
+
+fn write_manifest_template(path: &Path) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, format!("{}\n", manifest_template()))?;
+    Ok(())
 }
 
 const DEFAULT_MANIFEST: &str = r#"
