@@ -29,7 +29,7 @@ pub fn add_item(
     if name.is_empty() {
         bail!("item name cannot be empty");
     }
-    if config.items.iter().any(|item| item.name == name) {
+    if config.contains_identifier(name) {
         bail!("item `{name}` already exists");
     }
 
@@ -53,6 +53,7 @@ pub fn add_item(
     let target_value = manifest_target_value(target_input, &target)?;
     let item = Item {
         name: name.to_string(),
+        alias: None,
         source: source_rel,
         target: Target::Single(target_value),
         mode: Mode::Copy,
@@ -130,11 +131,16 @@ fn render_item_block(item: &Item) -> String {
     let mut lines = vec![
         "[[items]]".to_string(),
         format!("name = {}", Value::String(item.name.clone())),
-        format!(
-            "source = {}",
-            Value::String(item.source.replace(std::path::MAIN_SEPARATOR, "/"))
-        ),
     ];
+
+    if let Some(alias) = &item.alias {
+        lines.push(format!("alias = {}", Value::String(alias.clone())));
+    }
+
+    lines.push(format!(
+        "source = {}",
+        Value::String(item.source.replace(std::path::MAIN_SEPARATOR, "/"))
+    ));
 
     match &item.target {
         Target::Single(path) => {

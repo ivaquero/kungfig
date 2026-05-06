@@ -59,7 +59,7 @@ cargo run -- plan --tag git
 
 - `diff`
 
-Inspect full per-item diffs, or focus on a single managed item by name.
+Inspect full per-item diffs, or focus on a single managed item by name or alias.
 
 ```bash
 cargo run -- diff
@@ -178,6 +178,7 @@ The starter manifest defaults to [kungfig.toml](kungfig.toml), but you can point
 | field  |                description                |
 | :----: | :---------------------------------------: |
 |  name  |                 file name                 |
+| alias  |            optional CLI shortcut           |
 | source |                source path                |
 | target | target path, or per-platform target table |
 |  mode  |              operation  mode              |
@@ -213,6 +214,7 @@ Current path expansion is built-in only.
 ```toml
 [[items]]
 name = "gitconfig"
+alias = "git"
 source = "dotfiles/gitconfig"
 target = "{home}/.gitconfig"
 mode = "copy"

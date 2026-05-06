@@ -500,8 +500,7 @@ fn resolve_manifest_path(manifest: &Path) -> Result<PathBuf> {
 
 fn select_config(config: &Config, name: Option<&str>, tag: Option<&str>) -> Result<Config> {
     if let Some(name) = name {
-        let exists = config.items.iter().any(|item| item.name == name);
-        if !exists {
+        if !config.contains_identifier(name) {
             bail!("item `{name}` not found");
         }
     }

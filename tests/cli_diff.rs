@@ -59,3 +59,31 @@ mode = "copy"
     assert!(stdout.contains("+v2"));
     assert!(!stdout.contains("== zshrc =="));
 }
+
+#[test]
+fn diff_can_focus_on_alias() {
+    let workspace = workspace();
+    fs::create_dir_all(workspace.join("repo")).expect("create repo dir");
+    fs::write(workspace.join("repo/gitconfig"), "v2\n").expect("write git source");
+    write_manifest_text(
+        &workspace,
+        r#"
+[[items]]
+name = "gitconfig"
+alias = "git"
+source = "repo/gitconfig"
+target = "live/.gitconfig"
+mode = "copy"
+"#,
+    );
+    fs::create_dir_all(workspace.join("live")).expect("create live dir");
+    fs::write(workspace.join("live/.gitconfig"), "v1\n").expect("write git target");
+
+    let diff = run_kungfig(&workspace, &["diff", "git"]);
+    assert!(diff.status.success(), "{:?}", diff);
+
+    let stdout = String::from_utf8_lossy(&diff.stdout);
+    assert!(stdout.contains("== gitconfig =="));
+    assert!(stdout.contains("-v1"));
+    assert!(stdout.contains("+v2"));
+}

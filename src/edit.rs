@@ -47,10 +47,16 @@ fn select_edit_target(
     editor: &[String],
 ) -> Result<PathBuf> {
     if let Some(name) = item_name {
+        let source_name = config
+            .items
+            .iter()
+            .find(|item| item.matches_identifier(name))
+            .map(|item| item.name.clone())
+            .ok_or_else(|| anyhow::anyhow!("item `{name}` not found"))?;
         let items = resolve_items(config, manifest_path)?;
         let item = items
             .into_iter()
-            .find(|item| item.name == name)
+            .find(|item| item.name == source_name)
             .ok_or_else(|| anyhow::anyhow!("item `{name}` not found"))?;
         return Ok(item.source);
     }

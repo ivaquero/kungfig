@@ -18,6 +18,8 @@ pub struct Config {
 #[derive(Debug, Clone, Deserialize)]
 pub struct Item {
     pub name: String,
+    #[serde(default)]
+    pub alias: Option<String>,
     pub source: String,
     pub target: Target,
     #[serde(default)]
@@ -94,7 +96,7 @@ impl Config {
 
         for item in &self.items {
             if let Some(name) = name {
-                if item.name != name {
+                if !item.matches_identifier(name) {
                     continue;
                 }
             }
@@ -114,9 +116,19 @@ impl Config {
 
         Ok(Self { items })
     }
+
+    pub fn contains_identifier(&self, identifier: &str) -> bool {
+        self.items
+            .iter()
+            .any(|item| item.matches_identifier(identifier))
+    }
 }
 
 impl Item {
+    pub fn matches_identifier(&self, identifier: &str) -> bool {
+        self.name == identifier || self.alias.as_deref() == Some(identifier)
+    }
+
     fn matches_current_platform(&self) -> Result<bool> {
         let Some(expr) = self.when.as_deref() else {
             return Ok(true);
@@ -174,18 +186,36 @@ pub(crate) fn validate_config(config: &Config) -> Result<()> {
     }
 
     let mut names = HashSet::new();
+    let mut identifiers = HashSet::new();
     for item in &config.items {
         let name = item.name.trim();
         if name.is_empty() {
             bail!("item name cannot be empty");
         }
+        if !names.insert(name.to_string()) {
+            bail!("duplicate item name: {name}");
+        }
+        if !identifiers.insert(name.to_string()) {
+            bail!("duplicate item identifier: {name}");
+        }
+        if let Some(alias) = item.alias.as_deref() {
+            if alias.trim().is_empty() {
+                bail!("item `{name}` has an empty alias");
+            }
+            if alias.trim() != alias {
+                bail!("item `{name}` alias cannot contain leading or trailing whitespace");
+            }
+            if alias == name {
+                bail!("item `{name}` alias must differ from the item name");
+            }
+            if !identifiers.insert(alias.to_string()) {
+                bail!("duplicate item alias: {alias}");
+            }
+        }
         if item.source.trim().is_empty() {
             bail!("item `{name}` has an empty source path");
         }
         validate_target(name, &item.target)?;
-        if !names.insert(name.to_string()) {
-            bail!("duplicate item name: {name}");
-        }
         for tag in &item.tags {
             if tag.trim().is_empty() {
                 bail!("item `{name}` has an empty tag");

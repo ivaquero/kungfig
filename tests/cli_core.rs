@@ -187,7 +187,17 @@ fn edit_opens_item_source_with_editor_env() {
     let workspace = workspace();
     fs::create_dir_all(workspace.join("repo")).expect("create repo dir");
     fs::write(workspace.join("repo/gitconfig"), "[core]\neditor = vim\n").expect("write source");
-    write_manifest(&workspace);
+    write_manifest_text(
+        &workspace,
+        r#"
+[[items]]
+name = "gitconfig"
+alias = "git"
+source = "repo/gitconfig"
+target = "live/.gitconfig"
+mode = "copy"
+"#,
+    );
 
     let editor_script = workspace.join("fake-editor.sh");
     fs::write(
@@ -209,7 +219,7 @@ fn edit_opens_item_source_with_editor_env() {
     let edit_log = workspace.join("edit.log");
     let edit = run_kungfig_with_env(
         &workspace,
-        &["edit", "gitconfig"],
+        &["edit", "git"],
         &[("EDITOR", &editor_script), ("EDIT_LOG", &edit_log)],
     );
     assert!(edit.status.success(), "{:?}", edit);

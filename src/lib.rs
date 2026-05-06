@@ -13,7 +13,6 @@ pub mod state;
 pub mod template;
 
 pub mod recipe {
-    use std::collections::HashSet;
     use std::env;
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -127,15 +126,17 @@ pub mod recipe {
         recipe_name: &str,
     ) -> Result<AddAppResult> {
         let recipe = load_recipe(manifest_path, recipe_name)?;
-        let existing_names: HashSet<_> =
-            config.items.iter().map(|item| item.name.as_str()).collect();
-
         for item in &recipe.items {
-            if existing_names.contains(item.name.as_str()) {
+            if config.contains_identifier(item.name.as_str()) {
                 bail!(
                     "item `{}` already exists; cannot add recipe `{recipe_name}`",
                     item.name
                 );
+            }
+            if let Some(alias) = item.alias.as_deref() {
+                if config.contains_identifier(alias) {
+                    bail!("item alias `{alias}` already exists; cannot add recipe `{recipe_name}`");
+                }
             }
         }
 
