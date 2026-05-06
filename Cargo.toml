@@ -3,12 +3,20 @@ name = "kungfig"
 version = "0.1.0"
 edition = "2024"
 description = "A manifest-driven CLI for dotfiles and GUI app configuration management."
+readme = "README.md"
+repository = "https://github.com/ivaquero/kungfig"
+license = "GPL-2.0-or-later WITH Bison-exception-2.2"
+
+[[bin]]
+name = "kungfig"
+path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive"] }
 directories = "6.0"
 hex = "0.4"
+minijinja = { version = "2", features = ["serde"] }
 rusqlite = { version = "0.39", features = ["bundled"] }
 serde = { version = "1.0", features = ["derive"] }
 sha2 = "0.10"
@@ -16,4 +24,3 @@ shell-words = "1.1"
 similar = "2.7"
 thiserror = "2.0"
 toml = "0.8"
-minijinja = { version = "2", features = ["serde"] }

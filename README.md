@@ -64,6 +64,16 @@ Inspect full per-item diffs, or focus on a single managed item by name or alias.
 ```bash
 cargo run -- diff
 cargo run -- diff gitconfig
+cargo run -- diff git
+```
+
+- `edit`
+
+Open the selected item's source, and use the shorter `alias` when you do not want to type the full `name`.
+
+```bash
+cargo run -- edit gitconfig
+cargo run -- edit git
 ```
 
 - `apply`
@@ -185,6 +195,8 @@ The starter manifest defaults to [kungfig.toml](kungfig.toml), but you can point
 |  tags  |            optional item tags             |
 |  when  |        optional platform condition        |
 
+- `alias` is optional, but when present it can be used anywhere the CLI accepts an item name.
+
 - mode
 
 |    mode    |               description                |
@@ -242,11 +254,14 @@ mode = "template"
 
 - `main.rs`: Entry point of program
 - `lib.rs`: Unified interface for CLI commands
-- `cli.rs`: Define `init / plan / diff / apply / status / rollback / sync / doctor`
+- `cli.rs`: Define `init / template / plan / diff / apply / status / rollback / sync / doctor / add / edit / recipe / add-app`
 - `config.rs`: Parse and validate `kungfig.toml`
 - `path.rs`: Expand variables and perform path/file helpers
 - `plan.rs`: Resolve items and build execution plans
 - `diff.rs`: Render file diffs
+- `template.rs`: Render template context and source text
+- `add.rs`: Append items to the manifest
+- `edit.rs`: Choose the target to open in an editor
 - `backup.rs`: Create backups before overwrite
 - `apply.rs`: Apply plan actions and restore backups
 - `state.rs`: Persist managed files and backups in SQLite

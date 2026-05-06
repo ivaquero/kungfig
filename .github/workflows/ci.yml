@@ -1,76 +1,91 @@
-name: CI
+name: Release
 
 on:
   push:
     tags:
       - "v*"
   workflow_dispatch:
-    inputs:
-      version:
-        description: "version to build"
-        required: true
-        type: string
 
 permissions:
   contents: write
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   build:
-    name: build (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            artifact_name: kungfig-linux
-            binary_path: target/release/kungfig
-          - os: macos-latest
-            artifact_name: kungfig-macos
-            binary_path: target/release/kungfig
-          - os: windows-latest
-            artifact_name: kungfig-windows
-            binary_path: target/release/kungfig.exe
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            cross: false
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+            cross: true
+          - target: x86_64-apple-darwin
+            runner: macos-latest
+            cross: false
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+            cross: false
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            cross: false
+          - target: aarch64-pc-windows-msvc
+            runner: windows-11-arm
+            cross: true
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Build release binary
-        run: cargo build --release
-
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@master
         with:
-          name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.binary_path }}
+          toolchain: stable 18 months ago
+          targets: ${{ matrix.target }}
+      - name: Install cross
+        if: matrix.cross
+        run: cargo install cross --locked
+      - name: Build with cross
+        if: matrix.cross
+        run: cross build --release --target ${{ matrix.target }}
+      - name: Build with cargo
+        if: "!matrix.cross"
+        run: cargo build --release --target ${{ matrix.target }}
+      - name: Archive (unix)
+        if: runner.os != 'Windows'
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar czf ../../../kungfig-${{ matrix.target }}.tar.gz kungfig
+          cd ../../..
+      - name: Archive (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path target/${{ matrix.target }}/release/kungfig.exe -DestinationPath kungfig-${{ matrix.target }}.zip
+      - uses: actions/upload-artifact@v6
+        with:
+          name: kungfig-${{ matrix.target }}
+          path: kungfig-${{ matrix.target }}.*
+          if-no-files-found: error
 
   release:
-    name: publish release
+    name: Release
     needs: build
     runs-on: ubuntu-latest
-    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'workflow_dispatch'
-
+    timeout-minutes: 10
     steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
-          path: release-assets
-
-      - name: Stage release assets
-        run: |
-          mkdir -p release
-          cp release-assets/kungfig-linux/kungfig release/kungfig-linux
-          cp release-assets/kungfig-macos/kungfig release/kungfig-macos
-          cp release-assets/kungfig-windows/kungfig.exe release/kungfig-windows.exe
-
-      - name: Publish release
-        uses: softprops/action-gh-release@v2
+          path: artifacts
+          merge-multiple: true
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.version) || github.ref_name }}
           generate_release_notes: true
-          files: release/*
+          files: artifacts/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
