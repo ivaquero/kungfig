@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command as ProcessCommand, Output};
 
 use anyhow::{Context, Result, bail};
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 
 use crate::add::add_item;
 use crate::apply::{apply_plan, preview_plan, rollback_items};
@@ -14,6 +14,7 @@ use crate::edit::edit_target;
 use crate::plan::{Action, build_plan, resolve_items};
 use crate::recipe::{add_app, list_recipes, load_recipe, manifest_path_for_repo};
 use crate::state::{StateStore, collect_status};
+use crate::tui::{Launch as TuiLaunch, View as TuiView, run_tui};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -25,11 +26,15 @@ pub struct Cli {
     manifest: PathBuf,
 
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
-#[derive(Subcommand, Debug)]
+#[derive(Subcommand, Debug, Clone)]
 enum Command {
+    Tui {
+        #[command(subcommand)]
+        command: Option<TuiCommand>,
+    },
     Init {
         #[arg(long)]
         force: bool,
@@ -82,7 +87,61 @@ enum Command {
     },
 }
 
-#[derive(Subcommand, Debug)]
+#[derive(Subcommand, Debug, Clone)]
+enum TuiCommand {
+    Init {
+        #[arg(long)]
+        force: bool,
+    },
+    Template {
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    Plan {
+        #[arg(long)]
+        tag: Option<String>,
+    },
+    Diff {
+        name: Option<String>,
+        #[arg(long)]
+        summary: bool,
+        #[arg(long)]
+        tag: Option<String>,
+    },
+    Apply {
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        tag: Option<String>,
+    },
+    Status {
+        #[arg(long)]
+        tag: Option<String>,
+    },
+    Rollback {
+        #[arg(long)]
+        tag: Option<String>,
+    },
+    Doctor,
+    Sync,
+    Add {
+        path: String,
+        #[arg(long)]
+        name: String,
+    },
+    Edit {
+        name: Option<String>,
+    },
+    Recipe {
+        #[command(subcommand)]
+        command: RecipeCommand,
+    },
+    AddApp {
+        name: String,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone)]
 enum RecipeCommand {
     List,
     Show { name: String },
@@ -92,13 +151,14 @@ pub fn run() -> Result<i32> {
     let cli = Cli::parse();
 
     match cli.command {
-        Command::Init { force } => init_manifest(&cli.manifest, force),
-        Command::Template { output } => export_manifest_template(output.as_deref()),
-        Command::Plan { tag } => {
+        Some(Command::Tui { command }) => run_tui(build_tui_launch(&cli.manifest, command.as_ref())),
+        Some(Command::Init { force }) => init_manifest(&cli.manifest, force),
+        Some(Command::Template { output }) => export_manifest_template(output.as_deref()),
+        Some(Command::Plan { tag }) => {
             let (manifest_path, config) = load_config(&cli.manifest)?;
             run_plan(&config, &manifest_path, tag.as_deref())
         }
-        Command::Diff { name, summary, tag } => {
+        Some(Command::Diff { name, summary, tag }) => {
             let (manifest_path, config) = load_config(&cli.manifest)?;
             run_diff(
                 &config,
@@ -108,30 +168,89 @@ pub fn run() -> Result<i32> {
                 tag.as_deref(),
             )
         }
-        Command::Apply { dry_run, tag } => {
+        Some(Command::Apply { dry_run, tag }) => {
             let (manifest_path, config) = load_config(&cli.manifest)?;
             run_apply(&config, &manifest_path, dry_run, tag.as_deref())
         }
-        Command::Status { tag } => {
+        Some(Command::Status { tag }) => {
             let (manifest_path, config) = load_config(&cli.manifest)?;
             run_status(&config, &manifest_path, tag.as_deref())
         }
-        Command::Rollback { tag } => {
+        Some(Command::Rollback { tag }) => {
             let (manifest_path, config) = load_config(&cli.manifest)?;
             run_rollback(&config, &manifest_path, tag.as_deref())
         }
-        Command::Doctor => run_doctor_cli(&cli.manifest),
-        Command::Sync => run_sync(&cli.manifest),
-        Command::Add { path, name } => {
+        Some(Command::Doctor) => run_doctor_cli(&cli.manifest),
+        Some(Command::Sync) => run_sync(&cli.manifest),
+        Some(Command::Add { path, name }) => {
             let (manifest_path, config) = load_config_or_empty(&cli.manifest)?;
             run_add(&config, &manifest_path, &path, &name)
         }
-        Command::Edit { name } => {
+        Some(Command::Edit { name }) => {
             let (manifest_path, config) = load_config(&cli.manifest)?;
             run_edit(&config, &manifest_path, name.as_deref())
         }
-        Command::Recipe { command } => run_recipe_command(&cli.manifest, command),
-        Command::AddApp { name } => run_add_app(&cli.manifest, &name),
+        Some(Command::Recipe { command }) => run_recipe_command(&cli.manifest, command),
+        Some(Command::AddApp { name }) => run_add_app(&cli.manifest, &name),
+        None => {
+            Cli::command().print_help()?;
+            println!();
+            Ok(0)
+        }
+    }
+}
+
+fn build_tui_launch(manifest: &Path, command: Option<&TuiCommand>) -> TuiLaunch {
+    match command {
+        Some(TuiCommand::Plan { tag }) => TuiLaunch {
+            manifest: manifest.to_path_buf(),
+            initial_view: TuiView::Plan,
+            name: None,
+            tag: tag.clone(),
+            diff_summary: false,
+        },
+        Some(TuiCommand::Diff { name, summary, tag }) => TuiLaunch {
+            manifest: manifest.to_path_buf(),
+            initial_view: TuiView::Diff,
+            name: name.clone(),
+            tag: tag.clone(),
+            diff_summary: *summary,
+        },
+        Some(TuiCommand::Status { tag }) => TuiLaunch {
+            manifest: manifest.to_path_buf(),
+            initial_view: TuiView::Status,
+            name: None,
+            tag: tag.clone(),
+            diff_summary: false,
+        },
+        Some(TuiCommand::Doctor) => TuiLaunch {
+            manifest: manifest.to_path_buf(),
+            initial_view: TuiView::Doctor,
+            name: None,
+            tag: None,
+            diff_summary: false,
+        },
+        Some(TuiCommand::Apply { tag, .. }) | Some(TuiCommand::Rollback { tag }) => TuiLaunch {
+            manifest: manifest.to_path_buf(),
+            initial_view: TuiView::Plan,
+            name: None,
+            tag: tag.clone(),
+            diff_summary: false,
+        },
+        Some(TuiCommand::Sync)
+        | Some(TuiCommand::Init { .. })
+        | Some(TuiCommand::Template { .. })
+        | Some(TuiCommand::Add { .. })
+        | Some(TuiCommand::Edit { .. })
+        | Some(TuiCommand::Recipe { .. })
+        | Some(TuiCommand::AddApp { .. })
+        | None => TuiLaunch {
+            manifest: manifest.to_path_buf(),
+            initial_view: TuiView::Status,
+            name: None,
+            tag: None,
+            diff_summary: false,
+        },
     }
 }
 

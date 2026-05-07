@@ -14,9 +14,11 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive"] }
+crossterm = "0.29"
 directories = "6.0"
 hex = "0.4"
 minijinja = { version = "2", features = ["serde"] }
+ratatui = "0.29"
 rusqlite = { version = "0.39", features = ["bundled"] }
 serde = { version = "1.0", features = ["derive"] }
 sha2 = "0.10"

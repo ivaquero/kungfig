@@ -11,6 +11,7 @@ pub mod path;
 pub mod plan;
 pub mod state;
 pub mod template;
+pub mod tui;
 
 pub mod recipe {
     use std::env;

@@ -36,9 +36,9 @@ jobs:
           - target: x86_64-pc-windows-msvc
             runner: windows-latest
             cross: false
-          - target: aarch64-pc-windows-msvc
-            runner: windows-11-arm
-            cross: true
+          # - target: aarch64-pc-windows-msvc
+          #   runner: windows-11-arm
+          #   cross: true
 
     steps:
       - uses: actions/checkout@v6

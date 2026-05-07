@@ -17,9 +17,11 @@ KungFig is a cross-platform configuration manager written in Rust.
 ## Dependencies
 
 - clap: command line interface
+- crossterm: terminal input/output
 - serde: serialization/deserialization
 - toml: read TOML files
 - directories: read directory paths
+- ratatui: terminal UI rendering
 - similar: render text diffs
 - sha2: compute file and tree digests
 - hex: encode hashes
@@ -34,9 +36,9 @@ KungFig is a cross-platform configuration manager written in Rust.
 Create a starter manifest in the current directory, or write it to a custom path with `--manifest` and `--force`.
 
 ```bash
-cargo run -- init
-cargo run -- init --force
-cargo run -- --manifest configs/kungfig.toml init --force
+kungfig init
+kungfig init --force
+kungfig --manifest configs/kungfig.toml init --force
 ```
 
 - `template`
@@ -44,8 +46,8 @@ cargo run -- --manifest configs/kungfig.toml init --force
 Export the starter TOML template to stdout, or write it to a custom file with `--output`.
 
 ```bash
-cargo run -- template
-cargo run -- template --output kungfig.toml
+kungfig template
+kungfig template --output kungfig.toml
 ```
 
 - `plan`
@@ -53,8 +55,8 @@ cargo run -- template --output kungfig.toml
 Preview the actions KungFig would take, and narrow the output to tagged items when needed.
 
 ```bash
-cargo run -- plan
-cargo run -- plan --tag git
+kungfig plan
+kungfig plan --tag git
 ```
 
 - `diff`
@@ -62,9 +64,9 @@ cargo run -- plan --tag git
 Inspect full per-item diffs, or focus on a single managed item by name or alias.
 
 ```bash
-cargo run -- diff
-cargo run -- diff gitconfig
-cargo run -- diff git
+kungfig diff
+kungfig diff gitconfig
+kungfig diff git
 ```
 
 - `edit`
@@ -72,8 +74,8 @@ cargo run -- diff git
 Open the selected item's source, and use the shorter `alias` when you do not want to type the full `name`.
 
 ```bash
-cargo run -- edit gitconfig
-cargo run -- edit git
+kungfig edit gitconfig
+kungfig edit git
 ```
 
 - `apply`
@@ -81,8 +83,8 @@ cargo run -- edit git
 Materialize sources into their targets, or do a safe dry run before changing anything.
 
 ```bash
-cargo run -- apply
-cargo run -- apply --dry-run
+kungfig apply
+kungfig apply --dry-run
 ```
 
 - `status`
@@ -90,8 +92,8 @@ cargo run -- apply --dry-run
 Check which items are synced, modified, or pending, optionally filtered by tag.
 
 ```bash
-cargo run -- status
-cargo run -- status --tag core
+kungfig status
+kungfig status --tag core
 ```
 
 - `rollback`
@@ -99,8 +101,8 @@ cargo run -- status --tag core
 Restore the latest backup for managed items, which is especially useful after a bad edit.
 
 ```bash
-cargo run -- rollback
-cargo run -- rollback --tag git
+kungfig rollback
+kungfig rollback --tag git
 ```
 
 - `sync`
@@ -108,7 +110,7 @@ cargo run -- rollback --tag git
 Pull the latest repository changes, then apply the manifest and report git status.
 
 ```bash
-cargo run -- sync
+kungfig sync
 ```
 
 - `doctor`
@@ -116,7 +118,17 @@ cargo run -- sync
 Run a quick health check for the manifest, source tree, targets, git, and local state paths.
 
 ```bash
-cargo run -- doctor
+kungfig doctor
+```
+
+- `tui`
+
+Open the ratatui dashboard. You can start it directly or pair it with a command to pick the initial view.
+
+```bash
+kungfig tui
+kungfig tui plan
+kungfig tui diff gitconfig
 ```
 
 ## Workflow
@@ -135,6 +147,7 @@ flowchart TD
     CLI --> ROLLBACK[rollback]
     CLI --> SYNC[sync]
     CLI --> DOCTOR[doctor]
+    CLI --> TUI[tui]
     CLI --> RECIPE[recipe / add-app]
     INIT --> WRITE[write starter manifest]
     TEMPLATE --> WRITE[export starter template]
@@ -188,7 +201,7 @@ The starter manifest defaults to [kungfig.toml](kungfig.toml), but you can point
 | field  |                description                |
 | :----: | :---------------------------------------: |
 |  name  |                 file name                 |
-| alias  |            optional CLI shortcut           |
+| alias  |           optional CLI shortcut           |
 | source |                source path                |
 | target | target path, or per-platform target table |
 |  mode  |              operation  mode              |
@@ -254,12 +267,13 @@ mode = "template"
 
 - `main.rs`: Entry point of program
 - `lib.rs`: Unified interface for CLI commands
-- `cli.rs`: Define `init / template / plan / diff / apply / status / rollback / sync / doctor / add / edit / recipe / add-app`
+- `cli.rs`: Define `init / template / plan / diff / apply / status / rollback / sync / doctor / add / edit / recipe / add-app / tui`
 - `config.rs`: Parse and validate `kungfig.toml`
 - `path.rs`: Expand variables and perform path/file helpers
 - `plan.rs`: Resolve items and build execution plans
 - `diff.rs`: Render file diffs
 - `template.rs`: Render template context and source text
+- `tui.rs`: Ratatui dashboard
 - `add.rs`: Append items to the manifest
 - `edit.rs`: Choose the target to open in an editor
 - `backup.rs`: Create backups before overwrite
