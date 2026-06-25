@@ -29,6 +29,21 @@ KungFig is a cross-platform configuration manager written in Rust.
 - anyhow: ergonomic error handling
 - thiserror: typed internal errors
 
+## Installation
+
+### Linux / macOS
+
+```console
+brew tap brewforge/more
+brew install kungfig
+```
+
+### Windows
+
+```console
+scoop install kungfig
+```
+
 ## Quick Start
 
 - `init`
